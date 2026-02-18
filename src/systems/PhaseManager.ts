@@ -13,7 +13,7 @@ import { EventBus } from '../utils/EventBus';
 /** Valid transitions from each phase */
 const TRANSITIONS: Record<string, string[]> = {
   KICK_OFF:    ['OPEN_PLAY'],
-  OPEN_PLAY:   ['TACKLE', 'KNOCK_ON', 'TOUCH', 'PENALTY', 'TRY_SCORED', 'DROP_GOAL', 'MAUL'],
+  OPEN_PLAY:   ['TACKLE', 'KNOCK_ON', 'TOUCH', 'PENALTY', 'TRY_SCORED', 'DROP_GOAL', 'MAUL', 'HALF_TIME', 'FULL_TIME'],
   TACKLE:      ['RUCK', 'MAUL', 'PENALTY', 'TRY_SCORED'],
   RUCK:        ['OPEN_PLAY', 'PENALTY', 'SCRUM'],
   MAUL:        ['OPEN_PLAY', 'SCRUM', 'PENALTY', 'TRY_SCORED'],

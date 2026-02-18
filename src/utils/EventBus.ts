@@ -48,6 +48,8 @@ export interface GameEvents {
   halfTime: Record<string, never>;
   /** Full-time reached */
   fullTime: Record<string, never>;
+  /** Second half starts from HalfTimeScene */
+  secondHalfStart: Record<string, never>;
 }
 
 type EventCallback<T> = (data: T) => void;

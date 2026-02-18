@@ -6,16 +6,22 @@
  *
  * M2 integration: PhaseManager, RuckSystem, Tackle, Kicking (PowerBar),
  * Passing types, and improved player switching.
+ * M3 integration: ClockSystem, ScoringSystem, kickoff, half-time, full-time.
  */
 import Phaser from 'phaser';
 import { Player } from '../entities/Player';
 import { Ball } from '../entities/Ball';
 import { Team } from '../entities/Team';
-import { PITCH, CAMERA, TEAM_COLORS, PLAYER, Position } from '../utils/Constants';
+import { PITCH, CAMERA, TEAM_COLORS, PLAYER, Position, DIFFICULTY } from '../utils/Constants';
+import type { DifficultyConfig } from '../utils/Constants';
 import { EventBus } from '../utils/EventBus';
 import { distance } from '../utils/MathHelpers';
 import { PhaseManager } from '../systems/PhaseManager';
 import { RuckSystem } from '../systems/RuckSystem';
+import { ClockSystem } from '../systems/ClockSystem';
+import { ScoringSystem } from '../systems/ScoringSystem';
+import { MaulSystem } from '../systems/MaulSystem';
+import { OffsidesSystem } from '../systems/OffsidesSystem';
 import { resolveTackle, isInTackleRange } from '../components/Tackle';
 import { PowerBar, KickType, KICK_CONFIGS, calculateKickDistance, calculateKickDeviation } from '../components/Kicking';
 import { selectPassType, PASS_CONFIGS } from '../components/Passing';
@@ -42,6 +48,7 @@ export class MatchScene extends Phaser.Scene {
 
   // ── HUD elements ───────────────────────────────────────
   private scoreText!: Phaser.GameObjects.Text;
+  private clockText!: Phaser.GameObjects.Text;
   private phaseText!: Phaser.GameObjects.Text;
   private staminaBar!: Phaser.GameObjects.Rectangle;
   private staminaBg!: Phaser.GameObjects.Rectangle;
@@ -52,19 +59,23 @@ export class MatchScene extends Phaser.Scene {
   private kickTypeText!: Phaser.GameObjects.Text;
   private actionPrompt!: Phaser.GameObjects.Text;
 
-  // ── M2 Systems ─────────────────────────────────────────
+  // ── M2/M3/M5 Systems ────────────────────────────────────
   private phaseManager!: PhaseManager;
   private ruckSystem!: RuckSystem;
+  private clockSystem!: ClockSystem;
+  private scoringSystem!: ScoringSystem;
+  private maulSystem!: MaulSystem;
+  private offsidesSystem!: OffsidesSystem;
+  // @ts-ignore — used by M5 AI difficulty scaling
+  private difficulty: DifficultyConfig = DIFFICULTY.MEDIUM;
   private powerBar!: PowerBar;
   private selectedKickType: KickType = KickType.PUNT;
   private kickSelectorOpen = false;
   private kickSelectorItems: Phaser.GameObjects.Text[] = [];
 
   // ── Game state ─────────────────────────────────────────
-  private homeScore = 0;
-  private awayScore = 0;
   private autoSwitchTimer = 0;
-  // @ts-ignore — used by fend mechanic, consumed in M3
+  // @ts-ignore — used by fend mechanic
   private _fendingActive = false;
 
   // ── HUD helpers ────────────────────────────────────────
@@ -105,13 +116,18 @@ export class MatchScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.controlledPlayer.sprite, true, CAMERA.FOLLOW_LERP, CAMERA.FOLLOW_LERP);
     this.cameras.main.setZoom(CAMERA.ZOOM_DEFAULT);
 
-    // ── M2 Systems ──────────────────────────────────────
+    // ── M2/M3/M5 Systems ───────────────────────────────────
     this.phaseManager = new PhaseManager('KICK_OFF');
     this.ruckSystem = new RuckSystem(this);
+    this.clockSystem = new ClockSystem();
+    this.scoringSystem = new ScoringSystem();
+    this.maulSystem = new MaulSystem(this);
+    this.offsidesSystem = new OffsidesSystem();
     this.powerBar = new PowerBar();
 
-    // Transition to open play on start
+    // Start with kickoff → open play
     this.phaseManager.transition('OPEN_PLAY');
+    this.performKickoff();
 
     // ── Event listeners ─────────────────────────────────
     this.setupEventListeners();
@@ -130,6 +146,9 @@ export class MatchScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // ── Update match clock ──────────────────────────────
+    this.clockSystem.update(delta);
+
     // ── Handle controlled player input ──────────────────
     this.handlePlayerInput(delta);
 
@@ -165,6 +184,28 @@ export class MatchScene extends Phaser.Scene {
       this.autoCommitToRuck();
     }
 
+    // ── Update maul system ──────────────────────────────
+    if (this.maulSystem.isActive()) {
+      this.maulSystem.update(delta, this.ball);
+    }
+
+    // ── Update offside lines ────────────────────────────
+    if (this.ruckSystem.isActive()) {
+      const ruckState = this.ruckSystem.getState();
+      this.offsidesSystem.setRuckOffsideLine(ruckState.x, true);
+    } else {
+      this.offsidesSystem.clearRuckOffside();
+      this.offsidesSystem.setGeneralOffsideLine(this.ball.sprite.x);
+    }
+
+    // ── Check for try scored ────────────────────────────
+    if (this.phaseManager.getPhase() === 'OPEN_PLAY') {
+      const tryResult = this.scoringSystem.checkTry(this.ball);
+      if (tryResult && tryResult.scored) {
+        this.handleTryScored(tryResult.team);
+      }
+    }
+
     // ── Auto-switch on defense ──────────────────────────
     this.autoSwitchTimer += delta;
     if (this.autoSwitchTimer > 1000 && !this.controlledPlayer.hasBall) {
@@ -186,18 +227,15 @@ export class MatchScene extends Phaser.Scene {
 
   private setupEventListeners(): void {
     EventBus.on('ruckBallAvailable', () => {
-      // Ball available from ruck → transition to open play
       if (this.phaseManager.canTransition('OPEN_PLAY')) {
         this.phaseManager.transition('OPEN_PLAY');
         this.ruckSystem.endRuck();
-        // SH picks up ball
         const sh = this.homeTeam.getPlayerByPosition(Position.SCRUM_HALF);
         this.ball.attachToPlayer(sh);
       }
     });
 
     EventBus.on('ruckTurnover', () => {
-      // Turnover → away team gets ball
       if (this.phaseManager.canTransition('OPEN_PLAY')) {
         this.phaseManager.transition('OPEN_PLAY');
         this.ruckSystem.endRuck();
@@ -207,11 +245,9 @@ export class MatchScene extends Phaser.Scene {
     });
 
     EventBus.on('ruckTimeout', () => {
-      // Timeout → scrum
       this.ruckSystem.endRuck();
       if (this.phaseManager.canTransition('SCRUM')) {
         this.phaseManager.transition('SCRUM');
-        // Auto-resolve scrum for now → open play
         this.time.delayedCall(2000, () => {
           if (this.phaseManager.canTransition('OPEN_PLAY')) {
             this.phaseManager.transition('OPEN_PLAY');
@@ -223,11 +259,9 @@ export class MatchScene extends Phaser.Scene {
     });
 
     EventBus.on('penaltyAwarded', (_data) => {
-      // Simplified: just transition and give ball back
       if (this.phaseManager.canTransition('PENALTY')) {
         this.phaseManager.transition('PENALTY');
         this.ruckSystem.endRuck();
-        // Auto tap and go after 1.5s
         this.time.delayedCall(1500, () => {
           if (this.phaseManager.canTransition('TAP_AND_GO')) {
             this.phaseManager.transition('TAP_AND_GO');
@@ -237,6 +271,63 @@ export class MatchScene extends Phaser.Scene {
           }
         });
       }
+    });
+
+    // ── M3: Clock events ─────────────────────────────────
+    EventBus.on('halfTime', () => {
+      if (this.phaseManager.canTransition('HALF_TIME')) {
+        this.phaseManager.transition('HALF_TIME');
+      } else {
+        this.phaseManager.forcePhase('HALF_TIME');
+      }
+      this.clockSystem.pause();
+      // Launch half-time scene overlay
+      const score = this.scoringSystem.getScore();
+      this.scene.launch('HalfTimeScene', {
+        homeScore: score.home,
+        awayScore: score.away,
+        possession: 50,
+        tackles: { home: 0, away: 0 },
+        passes: { home: 0, away: 0 },
+        carries: { home: 0, away: 0 },
+        penalties: { home: 0, away: 0 },
+      });
+      this.scene.pause();
+    });
+
+    EventBus.on('fullTime', () => {
+      if (this.phaseManager.canTransition('FULL_TIME')) {
+        this.phaseManager.transition('FULL_TIME');
+      } else {
+        this.phaseManager.forcePhase('FULL_TIME');
+      }
+      this.clockSystem.pause();
+      const score = this.scoringSystem.getScore();
+      this.scene.start('ResultScene', {
+        homeScore: score.home,
+        awayScore: score.away,
+        stats: {
+          possession: { home: 50, away: 50 },
+          tackles: { home: 0, away: 0 },
+          carries: { home: 0, away: 0 },
+          passes: { home: 0, away: 0 },
+          penalties: { home: 0, away: 0 },
+        },
+      });
+    });
+
+    // Resume from half-time
+    EventBus.on('secondHalfStart', () => {
+      this.clockSystem.startSecondHalf();
+      this.phaseManager.forcePhase('KICK_OFF');
+      this.phaseManager.transition('OPEN_PLAY');
+      this.performKickoff();
+      this.scene.resume();
+    });
+
+    // ── Score event for HUD ──────────────────────────────
+    EventBus.on('score', () => {
+      // HUD picks up new score in updateHUD()
     });
   }
 
@@ -832,6 +923,83 @@ export class MatchScene extends Phaser.Scene {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // KICKOFF (M3)
+  // ─────────────────────────────────────────────────────────────
+
+  private performKickoff(): void {
+    // Place ball at halfway
+    this.ball.sprite.setPosition(PITCH.HALFWAY, PITCH.HEIGHT_PX / 2);
+    this.ball.sprite.setVelocity(0, 0);
+
+    // Give ball to fly-half 
+    const kicker = this.homeTeam.getPlayerByPosition(Position.FLY_HALF);
+    this.ball.attachToPlayer(kicker);
+
+    // Reset all players to formation
+    this.homeTeam.setAttackFormation();
+    this.awayTeam.setDefenseFormation();
+
+    // Reset all grounded/ruck states
+    for (const p of [...this.homeTeam.players, ...this.awayTeam.players]) {
+      p.isGrounded = false;
+      p.isInRuck = false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TRY SCORED (M3)
+  // ─────────────────────────────────────────────────────────────
+
+  private handleTryScored(team: 'home' | 'away'): void {
+    // Transition phase: TRY_SCORED
+    if (this.phaseManager.canTransition('TRY_SCORED')) {
+      this.phaseManager.transition('TRY_SCORED');
+    } else {
+      this.phaseManager.forcePhase('TRY_SCORED');
+    }
+
+    // Pause clock during try celebration
+    this.clockSystem.pause();
+
+    // Flash "TRY!" text
+    const { width, height } = this.cameras.main;
+    const tryText = this.add.text(width / 2, height / 2, 'TRY!', {
+      fontSize: '48px', fontFamily: 'monospace', color: '#22c55e',
+      backgroundColor: '#00000088', padding: { x: 20, y: 10 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+
+    // After celebration, attempt conversion
+    this.time.delayedCall(2000, () => {
+      tryText.destroy();
+
+      // Conversion attempt (auto for now — random accuracy/power)
+      const accuracy = 0.5 + Math.random() * 0.4;
+      const power = 0.5 + Math.random() * 0.3;
+      const kicker = team === 'home'
+        ? this.homeTeam.getPlayerByPosition(Position.FLY_HALF)
+        : this.awayTeam.getPlayerByPosition(Position.FLY_HALF);
+      const conversionSuccess = this.scoringSystem.attemptConversion(accuracy, power, kicker.stats.kicking);
+
+      // Show conversion result
+      const convText = this.add.text(width / 2, height / 2,
+        conversionSuccess ? 'CONVERSION!' : 'MISSED', {
+        fontSize: '32px', fontFamily: 'monospace',
+        color: conversionSuccess ? '#22c55e' : '#ef4444',
+        backgroundColor: '#00000088', padding: { x: 16, y: 8 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+
+      // After conversion, kickoff
+      this.time.delayedCall(1500, () => {
+        convText.destroy();
+        this.phaseManager.forcePhase('KICK_OFF');
+        this.phaseManager.transition('OPEN_PLAY');
+        this.performKickoff();
+        this.clockSystem.resume();
+      });
+    });
+  }
+
   // ─────────────────────────────────────────────────────────
   // HUD
   // ─────────────────────────────────────────────────────────
@@ -845,9 +1013,14 @@ export class MatchScene extends Phaser.Scene {
       backgroundColor: '#00000088', padding: { x: 10, y: 4 },
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
 
+    // Clock
+    this.clockText = this.add.text(width / 2, 34, '00:00 | 1st Half', {
+      fontSize: '11px', fontFamily: 'monospace', color: '#fbbf24',
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
+
     // Phase counter
-    this.phaseText = this.add.text(width / 2, 34, 'Phase 0 | OPEN PLAY', {
-      fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8',
+    this.phaseText = this.add.text(width / 2, 48, 'Phase 0 | OPEN PLAY', {
+      fontSize: '10px', fontFamily: 'monospace', color: '#94a3b8',
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
 
     // Stamina bar
@@ -880,7 +1053,7 @@ export class MatchScene extends Phaser.Scene {
 
     // Collect all HUD elements
     this.hudElements.push(
-      this.scoreText, this.phaseText,
+      this.scoreText, this.clockText, this.phaseText,
       this.staminaBg, this.staminaBar, this.staminaLabel,
       this.powerBarBg, this.powerBarFill, this.powerBarLabel,
       this.kickTypeText, this.actionPrompt,
@@ -891,7 +1064,13 @@ export class MatchScene extends Phaser.Scene {
   }
 
   private updateHUD(): void {
-    this.scoreText.setText(`HOME ${this.homeScore} — ${this.awayScore} AWAY`);
+    const score = this.scoringSystem.getScore();
+    this.scoreText.setText(`HOME ${score.home} — ${score.away} AWAY`);
+
+    // Clock
+    const halfLabel = this.clockSystem.getHalf() === 1 ? '1st Half' : '2nd Half';
+    const injuryTag = this.clockSystem.isInInjuryTime() ? ' +' : '';
+    this.clockText.setText(`${this.clockSystem.getClockString()}${injuryTag} | ${halfLabel}`);
 
     const phase = this.phaseManager.getPhase().replace('_', ' ');
     this.phaseText.setText(`Phase ${this.phaseManager.getPhaseCount()} | ${phase}`);
