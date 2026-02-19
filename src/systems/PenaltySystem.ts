@@ -14,7 +14,11 @@ export type InfringementType =
   | 'high_tackle'
   | 'obstruction'
   | 'collapsing_scrum'
-  | 'offside_at_ruck';
+  | 'collapsing_scrum'
+  | 'offside_at_ruck'
+  | 'early_engagement';
+
+export type PenaltySeverity = 'penalty' | 'free_kick';
 
 export type PenaltyOption = 'kick_at_goal' | 'kick_to_touch' | 'scrum' | 'tap_and_go';
 
@@ -26,6 +30,7 @@ export interface PenaltyState {
   againstTeam: 'home' | 'away';
   advantagePlaying: boolean;
   advantageStartX: number;
+  severity: PenaltySeverity;
 }
 
 export class PenaltySystem {
@@ -35,6 +40,7 @@ export class PenaltySystem {
     againstTeam: 'home',
     advantagePlaying: false,
     advantageStartX: 0,
+    severity: 'penalty',
   };
 
   /**
@@ -49,19 +55,27 @@ export class PenaltySystem {
   ): void {
     if (this.state.active) return; // Don't stack penalties
 
+    const severity: PenaltySeverity = (type === 'early_engagement') ? 'free_kick' : 'penalty';
+
     this.state = {
       active: true, x, y,
       infringement: type,
       againstTeam,
       advantagePlaying: playAdvantage,
       advantageStartX: x,
+      severity,
     };
 
     if (!playAdvantage) {
       this.awardPenalty();
     }
 
-    EventBus.emit('penaltyAwarded', { x, y, reason: type, againstAttack: againstTeam === 'home' });
+    EventBus.emit('penaltyAwarded', { 
+       x, y, 
+       reason: type, 
+       againstAttack: againstTeam === 'home',
+       severity 
+    });
   }
 
   /**

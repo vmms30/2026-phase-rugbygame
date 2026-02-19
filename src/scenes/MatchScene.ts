@@ -332,18 +332,94 @@ export class MatchScene extends Phaser.Scene {
       }
     });
 
-    EventBus.on('penaltyAwarded', (_data) => {
-      if (this.phaseManager.canTransition('PENALTY')) {
-        this.phaseManager.transition('PENALTY');
-        this.ruckSystem.endRuck();
-        this.time.delayedCall(1500, () => {
-          if (this.phaseManager.canTransition('TAP_AND_GO')) {
-            this.phaseManager.transition('TAP_AND_GO');
-            this.phaseManager.transition('OPEN_PLAY');
-            const flyHalf = this.homeTeam.getPlayerByPosition(Position.FLY_HALF);
-            this.ball.attachToPlayer(flyHalf);
+    EventBus.on('penaltyAwarded', (data: { x: number; y: number; reason: string; severity?: 'penalty'|'free_kick' }) => {
+      if (!this.phaseManager.canTransition('PENALTY')) return;
+
+      this.clockSystem.pause();
+      this.phaseManager.transition('PENALTY');
+      this.ruckSystem.endRuck();
+
+      const isFreeKick = data.severity === 'free_kick';
+      const typeLabel = isFreeKick ? 'FREE KICK' : 'PENALTY';
+      
+      // Simple UI
+      const { width, height } = this.cameras.main;
+      const cy = height / 2;
+      
+      const title = this.add.text(width / 2, cy - 100, `${typeLabel}: ${data.reason.toUpperCase()}`, {
+         fontSize: '32px', color: '#ff0000', backgroundColor: '#000000'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+
+      // Options
+      let optionsText = '[2] Scrum  [3] Lineout  [4] Tap';
+      if (!isFreeKick) {
+         optionsText = '[1] Kick at Goal  ' + optionsText;
+      }
+      
+      const opts = this.add.text(width / 2, cy, optionsText, {
+         fontSize: '24px', color: '#ffffff', backgroundColor: '#000000'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+
+      const clearUI = () => {
+         title.destroy();
+         opts.destroy();
+         this.input.keyboard?.off('keydown-ONE');
+         this.input.keyboard?.off('keydown-TWO');
+         this.input.keyboard?.off('keydown-THREE');
+         this.input.keyboard?.off('keydown-FOUR');
+         this.clockSystem.resume();
+      };
+      
+      if (this.input.keyboard) {
+          // [1] Kick at Goal
+          if (!isFreeKick) {
+             this.input.keyboard.on('keydown-ONE', () => {
+                clearUI();
+                this.scene.launch('SetPieceScene', {
+                   type: 'penalty_kick',
+                   x: data.x, y: data.y,
+                   team: this.controlledPlayer.teamSide 
+                });
+                this.scene.pause();
+             });
           }
-        });
+          
+          // [2] Scrum
+          this.input.keyboard.on('keydown-TWO', () => {
+             clearUI();
+             // Transition logic handled by phase change usually, but we need to trigger it manually or via event
+             // Let's just launch scene directly for M3 simplicity, similar to other set pieces
+             this.scene.launch('SetPieceScene', {
+                type: 'scrum',
+                x: data.x, y: data.y,
+                team: this.controlledPlayer.teamSide,
+                stats: { homeStrength: 50, awayStrength: 50, homeHooking: 50, awayHooking: 50 } // Simplified stats for now
+             });
+             this.scene.pause();
+          });
+
+          // [3] Lineout (Kick to Touch simulation -> just start lineout at sideline)
+          this.input.keyboard.on('keydown-THREE', () => {
+             clearUI();
+             // Find nearest touchline y
+             const touchY = data.y < PITCH.HEIGHT_PX / 2 ? 0 : PITCH.HEIGHT_PX;
+             this.scene.launch('SetPieceScene', {
+                type: 'lineout',
+                x: data.x, y: touchY, // Move to touch
+                team: this.controlledPlayer.teamSide
+             });
+             this.scene.pause();
+          });
+
+          // [4] Tap and Go
+          this.input.keyboard.on('keydown-FOUR', () => {
+             clearUI();
+             this.phaseManager.transition('TAP_AND_GO');
+             this.phaseManager.transition('OPEN_PLAY');
+             // Give ball to scrum half or clicked player
+             const sh = this.homeTeam.getPlayerByPosition(9);
+             if (sh) this.ball.attachToPlayer(sh);
+          });
       }
     });
 
@@ -496,12 +572,22 @@ export class MatchScene extends Phaser.Scene {
     });
 
     // ── Set Piece Resolution ─────────────────────────────
-    EventBus.on('ruckResolved', (data: { team: 'home' | 'away' }) => {
+    EventBus.on('ruckResolved', (data: { team: 'home' | 'away'; action?: string }) => {
       const winningTeam = data.team === 'home' ? this.homeTeam : this.awayTeam;
-      const sh = winningTeam.getPlayerByPosition(Position.SCRUM_HALF); // 9
       
-      if (sh) {
-        this.ball.attachToPlayer(sh);
+      let recipient = winningTeam.getPlayerByPosition(Position.SCRUM_HALF); // Default 9
+
+      if (data.action === 'maul') {
+          // Ball to Jumper/Forward (e.g. Lock 5)
+          recipient = winningTeam.getPlayerByPosition(5) || winningTeam.getPlayerByPosition(4) || recipient;
+      } else if (data.action === 'blindside' || data.action === 'openside') {
+          // Ball to SH (9) as usual, but could trigger specific backline move
+          // For now, just ensure SH gets it.
+          // In future: winningTeam.startMove(data.action);
+      }
+
+      if (recipient) {
+        this.ball.attachToPlayer(recipient);
         // Reset camera zoom
         this.cameras.main.zoomTo(CAMERA.ZOOM_DEFAULT, 1000, 'cubic.out');
       }
@@ -519,11 +605,43 @@ export class MatchScene extends Phaser.Scene {
          // Determine feed team
          const feedTeam = this.controlledPlayer.teamSide; 
          
+         // Calculate pack strengths (average of forwards 1-8)
+         const calculatePackStrength = (team: Team) => {
+            let total = 0;
+            let count = 0;
+            for (const p of team.players) {
+               if (p.position <= 8) { // Forwards are 1-8
+                  total += p.stats.strength;
+                  count++;
+               }
+            }
+            return count > 0 ? total / count : 50;
+         };
+
+         // Get Hooker stats (Position 2, index 1 usually, but check position prop)
+         const getHookerInstinct = (team: Team) => {
+            const hooker = team.players.find(p => p.position === 2);
+            // Fallback for testing if no hooker found
+            return hooker ? (hooker.stats.handling || 50) : 50; 
+            // Using 'handling' as proxy for hooking skill
+         };
+
+         const homeStrength = calculatePackStrength(this.homeTeam);
+         const awayStrength = calculatePackStrength(this.awayTeam);
+         const homeHooking = getHookerInstinct(this.homeTeam);
+         const awayHooking = getHookerInstinct(this.awayTeam);
+
          this.scene.launch('SetPieceScene', {
             type: 'scrum',
             x: this.ball.sprite.x,
             y: this.ball.sprite.y,
-            team: feedTeam
+            team: feedTeam,
+            stats: { 
+               homeStrength, 
+               awayStrength,
+               homeHooking,
+               awayHooking
+            }
          });
          this.scene.pause();
          
@@ -1294,6 +1412,23 @@ export class MatchScene extends Phaser.Scene {
 
     // Pause clock during try celebration
     this.clockSystem.pause();
+
+    // Try Animation: Dot Down
+    if (this.ball.carrier) {
+       this.tweens.add({
+          targets: this.ball.carrier.sprite,
+          angle: team === 'home' ? 45 : -45, // Dive angle
+          scaleX: 1.1,
+          scaleY: 1.1,
+          y: this.ball.carrier.sprite.y + 10, // Move down slightly
+          duration: 300,
+          yoyo: true,
+          onComplete: () => {
+             // Reset angle after celebration to avoid stuck rotation
+             if (this.ball.carrier) this.ball.carrier.sprite.angle = 0;
+          }
+       });
+    }
 
     // Zoom in on ball/scorer
     this.cameras.main.zoomTo(2.0, 800, 'cubic.out');

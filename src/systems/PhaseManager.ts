@@ -14,11 +14,11 @@ import { EventBus } from '../utils/EventBus';
 const TRANSITIONS: Record<string, string[]> = {
   KICK_OFF:    ['OPEN_PLAY'],
   OPEN_PLAY:   ['TACKLE', 'KNOCK_ON', 'TOUCH', 'PENALTY', 'TRY_SCORED', 'DROP_GOAL', 'MAUL', 'HALF_TIME', 'FULL_TIME'],
-  TACKLE:      ['RUCK', 'MAUL', 'PENALTY', 'TRY_SCORED'],
+  TACKLE:      ['RUCK', 'MAUL', 'PENALTY', 'TRY_SCORED', 'KNOCK_ON'],
   RUCK:        ['OPEN_PLAY', 'PENALTY', 'SCRUM'],
-  MAUL:        ['OPEN_PLAY', 'SCRUM', 'PENALTY', 'TRY_SCORED'],
-  SCRUM:       ['OPEN_PLAY', 'PENALTY'],
-  LINEOUT:     ['OPEN_PLAY', 'MAUL'],
+  MAUL:        ['OPEN_PLAY', 'SCRUM', 'PENALTY', 'TRY_SCORED'], // SCRUM acts as turnover
+  SCRUM:       ['OPEN_PLAY', 'PENALTY', 'SCRUM'], // SCRUM->SCRUM for resets
+  LINEOUT:     ['OPEN_PLAY', 'MAUL', 'PENALTY'],
   KNOCK_ON:    ['SCRUM'],
   TOUCH:       ['LINEOUT'],
   PENALTY:     ['OPEN_PLAY', 'SCRUM', 'LINEOUT', 'CONVERSION', 'TAP_AND_GO'],

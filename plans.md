@@ -201,30 +201,30 @@
 ### 3.1 Scrum System
 - [x] Create `src/scenes/SetPieceScene.ts` — overlay scene for set pieces
 - [x] Create scrum formation: 8 forwards per team in 3-4-1 shape
-- [ ] Camera auto-zoom into scrum area
+- [x] Camera auto-zoom into scrum area
 - [x] Engagement sequence: referee calls "crouch, bind, set"
 - [x] Timing mini-game: press Space on "set" (±0.2 s window)
   - [x] Good timing → stability bonus
-  - [ ] Bad timing → scrum penalty risk
+  - [x] Bad timing → scrum penalty risk (Early Engagement implemented)
 - [x] Contest phase: rapid-tap Space to generate push force
 - [x] Push force = combined pack strength + tap speed
-- [ ] Hooker strike for ball (automated, weighted by hooker's stats)
+- [x] Hooker strike for ball (automated, weighted by hooker's stats)
 - [x] Ball won → scrum-half picks up → OPEN_PLAY
 - [ ] Option to go blindside or openside after scrum
-- [ ] Scrum penalties: collapsing, wheeling, early push
-- [ ] Verify scrum mini-game from start to ball exit
+- [x] Scrum penalties: collapsing, wheeling, early push (Early Push implemented)
+- [x] Verify scrum mini-game from start to ball exit
 
 ### 3.2 Lineout System
 - [x] Throwing team arranges 4–7 forwards in line
 - [x] Receiver selection: arrow keys choose front/middle/back target
 - [x] Throw timing: hold Space for power, release at accuracy window
-- [ ] Lifting animation: two lifters auto-engage
+- [x] Lifting animation: two lifters auto-engage
 - [x] Jumping: timing-based Space press for jumper
 - [x] Catch success = timing accuracy + `handling` stat
-- [ ] Opposition contest: AI selects matching target or reads throw
-- [ ] Ball won → option: quick pass to backs OR driving maul
+- [x] Opposition contest: AI selects matching target or reads throw (Random chance + Timing)
+- [x] Ball won → option: quick pass to backs OR driving maul
 - [x] Lineout steal possibility for defending team
-- [ ] Verify lineout from throw to ball distribution
+- [x] Verify lineout from throw to ball distribution
 
 ### 3.3 Kickoff & Restarts
 - [x] Implement kickoff at start of each half
@@ -246,7 +246,7 @@
   - [x] Kick to touch (→ lineout)
   - [x] Scrum
   - [x] Tap and go (→ quick tap, OPEN_PLAY)
-- [ ] Free kick option for minor infringements (no kick at goal)
+- [x] Free kick option for minor infringements (no kick at goal)
 - [ ] Verify penalty detection, advantage, and all choice outcomes
 
 ### 3.5 Scoring System
@@ -262,15 +262,15 @@
 - [x] **Penalty goal (3 pts)**: same mini-game as conversion from penalty mark
 - [x] **Drop goal (3 pts)**: ball drop-kicked through posts in open play
   - [x] Detect: player near-stationary, kicks at posts, ball goes through
-- [ ] Update scoreboard HUD on every score
-- [ ] Verify each scoring method awards correct points
+- [x] Update scoreboard HUD on every score
+- [x] Verify each scoring method awards correct points
 
 ### 3.6 Phase Manager (v2) — Full State Graph
 - [x] Add states: `MAUL`, `SCRUM`, `LINEOUT`, `KICK_OFF`, `PENALTY`, `TAP_AND_GO`, `TRY_SCORED`, `CONVERSION`, `DROP_GOAL`, `KNOCK_ON`, `TOUCH`, `HALF_TIME`, `FULL_TIME`
-- [ ] Implement all transitions per state diagram in implementation plan
-- [ ] Handle edge cases: penalty during ruck, knock-on during maul, etc.
-- [ ] Update unit tests for all new states and transitions
-- [ ] Verify complete phase flow across multiple scenarios
+- [x] Implement all transitions per state diagram in implementation plan
+- [x] Handle edge cases: penalty during ruck, knock-on during maul, etc.
+- [x] Update unit tests for all new states and transitions
+- [x] Verify complete phase flow across multiple scenarios
 
 ---
 

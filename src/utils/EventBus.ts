@@ -21,7 +21,7 @@ export interface GameEvents {
   /** Ruck formed */
   ruckFormed: { x: number; y: number };
   /** Ruck resolved — ball recycled */
-  ruckResolved: { team: 'home' | 'away' };
+  ruckResolved: { team: 'home' | 'away'; action?: 'pass' | 'maul' | 'scrum_win' | 'blindside' | 'openside' };
   /** Ruck ball available for pickup */
   ruckBallAvailable: { x: number; y: number };
   /** Ruck turnover occurred */
@@ -37,7 +37,7 @@ export interface GameEvents {
   /** Ball went into touch */
   touch: { x: number; y: number; team: 'home' | 'away' };
   /** Penalty awarded */
-  penaltyAwarded: { x: number; y: number; reason: string; team?: 'home' | 'away'; againstAttack?: boolean };
+  penaltyAwarded: { x: number; y: number; reason: string; team?: 'home' | 'away'; againstAttack?: boolean; severity?: 'penalty' | 'free_kick' };
   /** Whistle blown */
   whistle: { type: 'short' | 'long' };
   /** Player switched */

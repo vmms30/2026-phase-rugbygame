@@ -62,4 +62,24 @@ describe('PhaseManager', () => {
         phaseManager.transition('OPEN_PLAY');
         expect(emitSpy).toHaveBeenCalledWith('phaseChange', { from: 'KICK_OFF', to: 'OPEN_PLAY' });
     });
+
+    it('should allow LINEOUT -> PENALTY', () => {
+        phaseManager.forcePhase('LINEOUT');
+        expect(phaseManager.transition('PENALTY')).toBe(true);
+    });
+
+    it('should allow SCRUM -> SCRUM (reset)', () => {
+        phaseManager.forcePhase('SCRUM');
+        expect(phaseManager.transition('SCRUM')).toBe(true);
+    });
+
+    it('should allow TACKLE -> KNOCK_ON', () => {
+        phaseManager.forcePhase('TACKLE');
+        expect(phaseManager.transition('KNOCK_ON')).toBe(true);
+    });
+
+    it('should allow MAUL -> SCRUM (turnover)', () => {
+        phaseManager.forcePhase('MAUL');
+        expect(phaseManager.transition('SCRUM')).toBe(true);
+    });
 });
