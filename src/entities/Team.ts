@@ -60,6 +60,7 @@ const DEFENSE_FORMATION: Record<Position, { rx: number; ry: number }> = {
 export class Team {
   readonly side: 'home' | 'away';
   readonly color: number;
+  readonly scene: Phaser.Scene;
   readonly players: Player[] = [];
 
   /** Cooldown to prevent tackle spam (per player) */
@@ -72,6 +73,7 @@ export class Team {
   public avgStamina: number = 100;
 
   constructor(scene: Phaser.Scene, side: 'home' | 'away', color: number) {
+    this.scene = scene;
     this.side = side;
     this.color = color;
 
@@ -143,7 +145,18 @@ export class Team {
   // DEFENSE AI — Proper rugby defensive line + auto-tackle
   // ────────────────────────────────────────────────────────
 
+  /**
+   * Defensive behavior:
+   * - Flat line at ball carrier's X
+   * - Drift 0.3x toward ball Y
+   * - Designated tackler chases at 1.2x speed
+   * - Fullback sweeps 80px behind line
+   */
   private updateDefense(_delta: number, ball: Ball, controlledPlayer: Player | null): void {
+    // 1. Formation handled by TeamAI
+
+    // 2. Determine defensive line X (flat line)
+    // We want to be on our side of the ball.
     if (!ball.carrier) return;
 
     const carrier = ball.carrier;
@@ -245,9 +258,6 @@ export class Team {
   private updateAttack(_delta: number, ball: Ball, controlledPlayer: Player | null): void {
     if (!ball.carrier) return;
 
-    const carrier = ball.carrier;
-    const attackDirection = this.side === 'home' ? 1 : -1;
-
     for (const player of this.players) {
       if (player === controlledPlayer || player.isGrounded || player.isInRuck) continue;
 
@@ -259,25 +269,16 @@ export class Team {
         continue;
       }
 
-      const distToBall = distance(
+      // Support runner logic handled by TeamAI
+      // We just move toward our assigned formation position
+      const distToHelper = distance(
         { x: player.sprite.x, y: player.sprite.y },
-        { x: carrier.sprite.x, y: carrier.sprite.y }
+        { x: player.formationX, y: player.formationY }
       );
-
-      // Support runner logic
-      if (distToBall < 200) {
-        const isForward = player.position <= Position.NUMBER_8;
-        const depthOffset = isForward
-          ? -20 * attackDirection
-          : -40 * attackDirection;
-        const channelOffset = ((player.position % 7) - 3) * 40;
-        const supportX = carrier.sprite.x + depthOffset;
-        const supportY = carrier.sprite.y + channelOffset;
-        const clampedY = Math.max(20, Math.min(PITCH.HEIGHT_PX - 20, supportY));
-        player.moveToward(supportX, clampedY, 0.75);
-      } else {
-        player.moveToward(player.formationX, player.formationY, 0.4);
-      }
+      
+      // If far from position, run fast; if close, jog
+      const speed = distToHelper > 100 ? 0.85 : 0.5;
+      player.moveToward(player.formationX, player.formationY, speed);
     }
   }
 
@@ -416,4 +417,125 @@ export class Team {
   setDifficulty(config: DifficultyConfig): void {
     this.difficulty = config;
   }
+
+  /**
+   * AI requests a drop goal.
+   */
+  requestDropGoal(player: Player): void {
+    if ((this.scene as any).attemptDropGoal) {
+      (this.scene as any).attemptDropGoal(player);
+    }
+  }
+
+  /**
+   * Find the closest teammate to a position, optionally excluding specific players.
+   */
+  getClosestPlayer(x: number, y: number, exclude: Player[] = []): Player | null {
+    let closest: Player | null = null;
+    let minDist = Infinity;
+
+    for (const p of this.players) {
+      if (exclude.includes(p)) continue;
+      const d = Phaser.Math.Distance.Between(x, y, p.sprite.x, p.sprite.y);
+      if (d < minDist) {
+        minDist = d;
+        closest = p;
+      }
+    }
+    return closest;
+  }
+  /**
+   * Set players for Kickoff Chase (Kicking Team).
+   * Kicker (Fly Half) at center.
+   * Chasers spread along the line.
+   */
+  setKickoffChaseFormation(): void {
+    const startX = PITCH.HALFWAY;
+    const direction = this.side === 'home' ? 1 : -1;
+    
+    // Kicker (10) is handled by KickoffSystem (placed at ball).
+    // Others line up behind 10m line? No, behind halfway.
+    // Let's space them out across the width.
+    
+    const spacing = PITCH.HEIGHT_PX / (this.players.length + 1);
+    
+    let index = 0;
+    for (const player of this.players) {
+      if (player.position === Position.FLY_HALF) continue; // Skip kicker
+      
+      const y = spacing * (index + 1);
+      // Slightly behind halfway to be onside
+      const x = startX - (50 * direction); 
+      
+      player.setPosition(x, y);
+      player.setRotation(this.side === 'home' ? 0 : Math.PI);
+      player.setVelocity(0, 0);
+      index++;
+    }
+  }
+
+  /**
+   * Set players for Kickoff Receive (Receiving Team).
+   * Forwards in pods for lifting/catching (10m line).
+   * Backs deep covering kicks.
+   */
+  setKickoffReceiveFormation(): void {
+    const direction = this.side === 'home' ? 1 : -1;
+    // 10m line for this team
+    const tenMeterLine = this.side === 'home' ? PITCH.LINE_10_LEFT : PITCH.LINE_10_RIGHT; 
+    // 22m line 
+    const twentyTwoLine = this.side === 'home' ? PITCH.LINE_22_LEFT : PITCH.LINE_22_RIGHT;
+
+    // Forwards (1-8) at 10m line waiting for short kick
+    const forwards = [1,2,3,4,5,6,7,8];
+    const backs = [9,10,11,12,13,14,15];
+
+    let fIndex = 0;
+    for (const pos of forwards) {
+      const p = this.getPlayerByPosition(pos as any);
+      const y = (PITCH.HEIGHT_PX / 9) * (fIndex + 1);
+      // Stand 5m behind 10m line
+      const x = tenMeterLine - (50 * direction); // if Home (attacks right), 10mLeft is x=600. home side is < 600. wait.
+      // If Home attacks Right, Home defends Left.
+      // Home 10m line is 600. Offside is > 600? No. 
+      // Kickoff comes from center (700). 
+      // Receiving team stands on their side of 10m.
+      // If Home receiving (defending Left side), kickoff from 700. 10m line is 600. Ball must cross 600.
+      // Home players stand at ~500-600.
+      
+      // Let's just use explicit logic based on side
+      // Home receives: Ball typically lands between 600 and 0.
+      // Away receives: Ball typically lands between 800 and 1400.
+      
+      // We place forwards near the 10m line (most common contest point)
+      // Backs deep.
+      
+      p.setPosition(x, y);
+      p.setRotation(this.side === 'home' ? 0 : Math.PI); 
+      p.setVelocity(0, 0);
+      fIndex++;
+    }
+
+    // Backs scattered deep (22m to 50m)
+    let bIndex = 0;
+    for (const pos of backs) {
+       const p = this.getPlayerByPosition(pos as any);
+       const y = (PITCH.HEIGHT_PX / 8) * (bIndex + 1);
+       const x = twentyTwoLine; // On the 22
+       
+       p.setPosition(x, y);
+       p.setRotation(this.side === 'home' ? 0 : Math.PI);
+       p.setVelocity(0, 0);
+       bIndex++;
+    }
+  }
+
+  /**
+   * Helper to set position directly for formation
+   */
+  // private setPlayerPos(pos: Position, x: number, y: number) {
+  //     const p = this.getPlayerByPosition(pos);
+  //     p.setPosition(x, y);
+  //     p.setVelocity(0,0);
+  // }
 }

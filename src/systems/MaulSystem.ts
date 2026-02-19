@@ -51,23 +51,24 @@ export class MaulSystem {
    * @param attacker The supporting attacker
    * @param attacksRight Whether the attacking team attacks to the right
    */
-  startMaul(carrier: Player, attacker: Player, attacksRight: boolean): void {
+  startMaul(carrier: Player, tackler: Player, attacker: Player, attacksRight: boolean): void {
     this.state = {
       active: true,
       x: carrier.sprite.x,
       y: carrier.sprite.y,
       carrier,
       attackers: [carrier, attacker],
-      defenders: [],
+      defenders: [tackler],
       startTime: Date.now(),
       direction: attacksRight ? 1 : -1,
     };
     this.lastX = this.state.x;
     this.stallTimer = 0;
 
-    // Lock carrier + attacker in maul
+    // Lock carrier + attacker + defender in maul
     carrier.isInRuck = true;
     attacker.isInRuck = true;
+    tackler.isInRuck = true;
 
     EventBus.emit('ruckFormed', { x: this.state.x, y: this.state.y });
   }

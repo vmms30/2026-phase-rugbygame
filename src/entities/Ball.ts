@@ -279,4 +279,25 @@ export class Ball {
     };
     return angles[facing] ?? 0;
   }
+
+  /**
+   * Check if ball is on the ground (loose).
+   */
+  isGrounded(): boolean {
+    return this.state === 'loose';
+  }
+
+  /**
+   * Set position directly.
+   */
+  setPosition(x: number, y: number): void {
+    this.sprite.setPosition(x, y);
+  }
+  
+  /**
+   * Set velocity directly.
+   */
+  setVelocity(x: number, y: number): void {
+    this.sprite.setVelocity(x, y);
+  }
 }

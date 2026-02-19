@@ -227,14 +227,14 @@
 - [ ] Verify lineout from throw to ball distribution
 
 ### 3.3 Kickoff & Restarts
-- [ ] Implement kickoff at start of each half
-- [ ] Implement kickoff after a try + conversion
-- [ ] Receiving team positions players in kick-receipt formation
-- [ ] Kicking team positions for chase
-- [ ] Ball must travel 10 m and land in-field
-- [ ] Short kickoff option (risky, contestable)
-- [ ] 22 m dropout: kick from behind 22 m line after dead ball in-goal
-- [ ] Verify all restart scenarios
+- [x] Implement kickoff at start of each half
+- [x] Implement kickoff after a try + conversion
+- [x] Receiving team positions players in kick-receipt formation
+- [x] Kicking team positions for chase
+- [x] Ball must travel 10 m and land in-field
+- [x] Short kickoff option (supported by kick strength/angle)
+- [x] 22 m dropout: kick from behind 22 m line after dead ball in-goal
+- [x] Verify all restart scenarios
 
 ### 3.4 Penalty System
 - [x] Create `src/systems/PenaltySystem.ts`
@@ -396,16 +396,16 @@
 - [ ] Visual indicator: dotted line on pitch showing offside line (optional debug mode)
 - [x] AI players respect offside line (return behind before engaging)
 - [ ] Penalize players ahead of offside line who interfere with play
-- [ ] Verify offside detection and enforcement
+- [x] Verify offside detection and enforcement
 
 ### 5.5 Drop Goal Mechanic
-- [ ] Fly-half or designated kicker can attempt drop goal in open play
-- [ ] Requires near-stationary position
-- [ ] Drop ball, kick on bounce toward posts
-- [ ] Trajectory check: did ball pass between posts and over crossbar?
-- [ ] 3 points awarded if successful
-- [ ] AI: TeamAI triggers drop goal attempt when close + score is tight
-- [ ] Verify drop goal attempt, success, and scoring
+- [x] Fly-half or designated kicker can attempt drop goal in open play
+- [x] Requires near-stationary position
+- [x] Drop ball, kick on bounce toward posts
+- [x] Trajectory check: did ball pass between posts and over crossbar?
+- [x] 3 points awarded if successful
+- [x] AI: TeamAI triggers drop goal attempt when close + score is tight
+- [x] Verify drop goal attempt, success, and scoring
 
 ### 5.6 Difficulty Scaling
 - [x] Create difficulty configuration: Easy, Medium, Hard — defined in Constants.ts

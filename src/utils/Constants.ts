@@ -31,6 +31,7 @@ export const PITCH = {
   POST_RIGHT_X: 1250,
   POST_Y: 350,        // Centre of pitch height
   POST_WIDTH: 56,      // 5.6m between posts
+  CROSSBAR_HEIGHT: 30, // 3m height
 } as const;
 
 // ─── Player Speeds (px per frame at 60 FPS) ─────────────────

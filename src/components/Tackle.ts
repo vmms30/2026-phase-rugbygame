@@ -6,7 +6,7 @@
 import type { PlayerStats } from './Stats';
 import { rollTackleOutcome } from './Stats';
 
-export type TackleOutcome = 'dominant' | 'normal' | 'missed' | 'fendOff';
+export type TackleOutcome = 'dominant' | 'normal' | 'missed' | 'fendOff' | 'heldUp';
 
 export interface TackleResult {
   outcome: TackleOutcome;
@@ -46,6 +46,18 @@ export function resolveTackle(
     : carrier;
 
   const outcome = rollTackleOutcome(effectiveTackler, effectiveCarrier, momentum);
+  
+  // Check for 'held up' (maul potential) logic
+  // If carrier is strong and not sprinting, they might stay on feet
+  if (outcome === 'normal' && effectiveCarrier.strength > effectiveTackler.strength + 10 && !carrierSprinting) {
+     return {
+        outcome: 'heldUp',
+        ballDislodged: false,
+        ruckTrigger: false, // Wait for maul trigger
+        tacklerRecoveryMs: 1000,
+        carrierRecoveryMs: 500,
+     };
+  }
 
   switch (outcome) {
     case 'dominant':

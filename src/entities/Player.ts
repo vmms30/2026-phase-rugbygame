@@ -207,4 +207,27 @@ export class Player {
     if (angle >= -112.5 && angle < -67.5) return Direction.N;
     return Direction.NE;
   }
+
+  /**
+   * Set player position directly.
+   */
+  setPosition(x: number, y: number): void {
+    this.sprite.setPosition(x, y);
+    this.formationX = x;
+    this.formationY = y;
+  }
+
+  /**
+   * Set player velocity directly.
+   */
+  setVelocity(x: number, y: number): void {
+    this.sprite.setVelocity(x, y);
+  }
+
+  /**
+   * Set player rotation.
+   */
+  setRotation(radians: number): void {
+    this.sprite.setRotation(radians);
+  }
 }

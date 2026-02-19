@@ -105,6 +105,34 @@ export class FormationManager {
     }
   }
 
+  /**
+   * Get all target positions for the team.
+   * Efficiently returns a map of Position -> {x, y}.
+   */
+  getAllPositions(side: 'home' | 'away'): Map<number, { x: number; y: number }> {
+    const map = new Map<number, { x: number; y: number }>();
+    const formation = FORMATIONS[this.currentFormation];
+    
+    for (let i = 1; i <= 15; i++) {
+      const f = formation[i];
+      if (!f) continue;
+
+      let rx = f.rx + this.ballOffsetX;
+      rx = Math.max(0.05, Math.min(0.95, rx));
+
+      let x, y;
+      if (side === 'home') {
+        x = rx * PITCH.WIDTH_PX;
+        y = f.ry * PITCH.HEIGHT_PX;
+      } else {
+        x = (1 - rx) * PITCH.WIDTH_PX;
+        y = f.ry * PITCH.HEIGHT_PX;
+      }
+      map.set(i, { x, y });
+    }
+    return map;
+  }
+
   getFormation(): FormationType {
     return this.currentFormation;
   }
