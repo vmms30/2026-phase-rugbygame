@@ -84,6 +84,15 @@ export class Team {
   // Average stats for quick access
   public avgStamina: number = 100;
 
+  // Substitution tracking
+  private reserves: Player[] = [];
+  private subsUsed: number = 0;
+  private static readonly MAX_SUBS = 8;
+
+  // Defensive read speed tracking
+  private defenseReadTimestamp: number = 0;
+  private lastTrackedCarrierId: string = '';
+
   constructor(scene: Phaser.Scene, side: 'home' | 'away', stats: TeamStats) {
     this.scene = scene;
     this.side = side;
@@ -119,6 +128,21 @@ export class Team {
       player.team = this;
       this.players.push(player);
     }
+
+    // Create 8 bench reserve players (off-screen, ready for substitution)
+    const benchPositions = [
+      Position.LOOSEHEAD_PROP, Position.HOOKER, Position.TIGHTHEAD_PROP, // front-row cover
+      Position.LOCK_4, Position.BLINDSIDE_FLANKER,                       // back-row/lock cover
+      Position.SCRUM_HALF, Position.INSIDE_CENTRE, Position.RIGHT_WING,  // backs cover
+    ];
+    for (const pos of benchPositions) {
+      const reserve = new Player(scene, -100, -100, pos, side, this.color);
+      reserve.team = this;
+      reserve.sprite.setVisible(false);
+      reserve.sprite.setActive(false);
+      (reserve.sprite.body as Phaser.Physics.Arcade.Body)?.enable;
+      this.reserves.push(reserve);
+    }
   }
 
   /**
@@ -128,6 +152,71 @@ export class Team {
     const p = this.players.find((pl) => pl.position === pos);
     if (!p) throw new Error(`No player found for position ${pos}`);
     return p;
+  }
+
+  /** Get the player with the lowest stamina (for fatigue-aware decisions). */
+  getLowestStaminaPlayer(): Player | null {
+    if (this.players.length === 0) return null;
+    let lowest = this.players[0];
+    for (const p of this.players) {
+      if (p.stamina < lowest.stamina) lowest = p;
+    }
+    return lowest;
+  }
+
+  /**
+   * Substitute the most fatigued player with a fresh bench reserve.
+   * Returns true if a substitution was made.
+   */
+  substituteFatigued(staminaThreshold: number = 25): boolean {
+    if (this.subsUsed >= Team.MAX_SUBS || this.reserves.length === 0) return false;
+
+    // Find most fatigued active player not currently involved
+    const eligible = this.players
+      .filter(p => !p.hasBall && !p.isGrounded && !p.isInRuck && p.stamina < staminaThreshold)
+      .sort((a, b) => a.stamina - b.stamina);
+
+    if (eligible.length === 0) return false;
+
+    const tiredPlayer = eligible[0];
+    const isForward = tiredPlayer.position <= Position.NUMBER_8;
+
+    // Find matching reserve (same position category)
+    const reserveIdx = this.reserves.findIndex(r => {
+      const rIsForward = r.position <= Position.NUMBER_8;
+      return rIsForward === isForward;
+    });
+    if (reserveIdx === -1) return false;
+
+    const reserve = this.reserves.splice(reserveIdx, 1)[0];
+
+    // Swap positions and visibility
+    reserve.sprite.setPosition(tiredPlayer.sprite.x, tiredPlayer.sprite.y);
+    reserve.formationX = tiredPlayer.formationX;
+    reserve.formationY = tiredPlayer.formationY;
+    reserve.sprite.setVisible(true);
+    reserve.sprite.setActive(true);
+
+    // Remove tired player
+    tiredPlayer.sprite.setVisible(false);
+    tiredPlayer.sprite.setActive(false);
+    tiredPlayer.sprite.setVelocity(0, 0);
+
+    // Swap in players array
+    const idx = this.players.indexOf(tiredPlayer);
+    if (idx !== -1) {
+      this.players[idx] = reserve;
+    }
+
+    this.subsUsed++;
+    EventBus.emit('substitution', {
+      teamSide: this.side,
+      outPlayer: tiredPlayer.id,
+      inPlayer: reserve.id,
+      subsRemaining: Team.MAX_SUBS - this.subsUsed,
+    });
+
+    return true;
   }
 
   /**
@@ -208,13 +297,17 @@ export class Team {
     );
 
     // 1. DESIGNATED TACKLER — Sprint toward ball carrier
+    //    Defensive read speed: delay pursuit by aiReactionDelay (M5.6)
     if (designatedTackler) {
-      // designatedTackler.moveToward(carrierX, carrierY, 1.2);
-       designatedTackler.updateAI(0, available, { x: carrierX, y: carrierY }); 
-       // Note: updateAI calculates force based on maxSpeed. We might need to boost maxSpeed for sprint?
-       // For now, let's rely on standard stats. The 1.2x was a cheat.
-       // We can temporarily boost stats? Or just let standard stats apply.
-       // Let's stick to standard stats for now to see if natural speed separation works.
+      const now = Date.now();
+      if (carrier.id !== this.lastTrackedCarrierId) {
+        this.lastTrackedCarrierId = carrier.id;
+        this.defenseReadTimestamp = now;
+      }
+
+      const readElapsed = now - this.defenseReadTimestamp;
+      if (readElapsed >= this.difficulty.aiReactionDelay) {
+        designatedTackler.updateAI(0, available, { x: carrierX, y: carrierY });
 
       // AUTO-TACKLE: If in range, attempt tackle
       const tacklerDist = distance(
@@ -224,6 +317,7 @@ export class Team {
       if (tacklerDist < PLAYER.TACKLE_RANGE && designatedTackler !== controlledPlayer) {
         this.attemptAITackle(designatedTackler, carrier, ball);
       }
+      } // end readElapsed check
     }
 
     // 2. DEFENSIVE LINE — Flat line with proper spacing

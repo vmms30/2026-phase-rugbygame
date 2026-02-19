@@ -33,6 +33,10 @@ export class TeamAI {
   private playSuccessStats = new Map<PlayCall, number>(); // Higher = more meters gained
   private opponentGainingGround = false;
 
+  // Adaptive defense: track opponent's recent successful plays
+  private opponentPlayHistory: PlayCall[] = [];
+  private static readonly OPPONENT_HISTORY_SIZE = 5;
+
   constructor(team: Team, side: 'home' | 'away') {
     this._team = team;
     this.side = side;
@@ -100,6 +104,29 @@ export class TeamAI {
     const hasPossession = ball.carrier?.teamSide === this.side;
     const ballX = ball.sprite.x;
     const ballY = ball.sprite.y;
+    const isInRuck = ball.state === 'ruck';
+
+    // ── Post-contact ruck support: 2 nearest forwards auto-seek ruck ──
+    if (isInRuck && hasPossession) {
+      const forwards = this._team.players
+        .filter(p => p.position <= 8 && !p.isInRuck && !p.isGrounded)
+        .map(p => ({
+          player: p,
+          dist: Math.hypot(p.sprite.x - ballX, p.sprite.y - ballY),
+        }))
+        .sort((a, b) => a.dist - b.dist);
+
+      // Send 2 nearest forwards to ruck cleanup positions
+      for (let i = 0; i < Math.min(2, forwards.length); i++) {
+        const fw = forwards[i].player;
+        const offsetY = i === 0 ? -25 : 25; // Stagger either side
+        fw.formationX = ballX + (this.side === 'home' ? -30 : 30);
+        fw.formationY = ballY + offsetY;
+      }
+    }
+
+    // Track back positions for width enforcement
+    const backPositionsY: { position: number; y: number }[] = [];
 
     // Iterate all players and set their formation target
     for (const player of this._team.players) {
@@ -111,14 +138,14 @@ export class TeamAI {
 
       // Apply Off-Ball Intelligence modifiers if attacking
       if (hasPossession) {
-        // 1. Forwards (1-8): Run support lines
+        // 1. Forwards (1-8): Run support lines with depth variation
         if (player.position <= 8) {
-          // If close to ball, move to support depth
           const dist = Math.abs(player.sprite.x - ballX);
           if (dist < 200) {
-            // Crash line support: 15-25px behind ball, angled
-            const offset = (player.id.charCodeAt(0) % 3 - 1) * 30; // -30, 0, 30 Y offset
-            const supportDepth = 50; 
+            // Sort by closeness to determine depth tier
+            const isNearSupporter = dist < 100;
+            const supportDepth = isNearSupporter ? 30 : 60; // Nearest 2 at -30px, others at -60px
+            const offset = (player.id.charCodeAt(0) % 3 - 1) * 30;
             if (this.side === 'home') {
               target.x = ballX - supportDepth;
             } else {
@@ -128,42 +155,41 @@ export class TeamAI {
           }
         }
 
-        // 2. Backs (9-15): Staggered depth
+        // 2. Backs (9-15): Staggered depth + lateral run-line angle offset
         if (player.position >= 10) {
-           // Depth stagger based on position relative to Fly Half (10)
-           // 10 is baseline. 12 is deeper, 13 deeper, 15 deepest.
            let depthOffset = 0;
-           if (player.position === 12) depthOffset = 30; // Inside Centre
-           if (player.position === 13) depthOffset = 50; // Outside Centre
-           if (player.position === 11 || player.position === 14) depthOffset = 70; // Wings
-           if (player.position === 15) depthOffset = 80; // Fullback
+           let lateralOffset = 0; // Run-line angle offset
+           if (player.position === 12) { depthOffset = 30; lateralOffset = -15; }
+           if (player.position === 13) { depthOffset = 50; lateralOffset = -25; }
+           if (player.position === 11) { depthOffset = 70; lateralOffset = -40; } // Left Wing
+           if (player.position === 14) { depthOffset = 70; lateralOffset = 40; }  // Right Wing
+           if (player.position === 15) { depthOffset = 80; lateralOffset = 0; }
 
            if (this.side === 'home') {
              target.x -= depthOffset;
            } else {
              target.x += depthOffset;
            }
+           target.y += lateralOffset;
 
            // 3. Fullback insert
-           // If in opponent 22, Fullback joins the line between centers
            const inOpp22 = this.side === 'home' ? ballX > PITCH.LINE_22_RIGHT : ballX < PITCH.LINE_22_LEFT;
            if (player.position === 15 && inOpp22) {
-             // Find gap between 12 and 13? Or just set Y to avg
-             const p12 = this._team.getPlayerByPosition(12);
-             const p13 = this._team.getPlayerByPosition(13);
-             if (p12 && p13) {
-                target.y = (p12.sprite.y + p13.sprite.y) / 2;
-                target.x = (p12.sprite.x + p13.sprite.x) / 2; // Join flat
-             }
+              const p12 = this._team.getPlayerByPosition(12);
+              const p13 = this._team.getPlayerByPosition(13);
+              if (p12 && p13) {
+                 target.y = (p12.sprite.y + p13.sprite.y) / 2;
+                 target.x = (p12.sprite.x + p13.sprite.x) / 2;
+              }
            }
+
+           // Track for width enforcement
+           backPositionsY.push({ position: player.position, y: target.y });
         }
       }
 
-      // 4. Decoy runners (randomly selected periodically?)
-      // Check for 'decoy' flag on player? (Not implemented on Player entity yet)
-      // For now, simple logic: Flankers (6, 7) sometimes run 'unders' lines
+      // 4. Decoy runners: Flankers run 'unders' lines on SKIP_PASS
       if (hasPossession && (player.position === 6 || player.position === 7)) {
-         // If play is SKIP_PASS, flankers run short to fix defenders
          if (this.currentPlay === 'SKIP_PASS') {
             target.y = ballY + (player.position === 6 ? -50 : 50);
          }
@@ -173,12 +199,38 @@ export class TeamAI {
       player.formationX = target.x;
       player.formationY = target.y;
     }
+
+    // 5. Width/depth maintenance: enforce minimum 40px Y separation between backs
+    if (hasPossession && backPositionsY.length > 1) {
+      backPositionsY.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < backPositionsY.length; i++) {
+        const gap = backPositionsY[i].y - backPositionsY[i - 1].y;
+        if (gap < 40) {
+          const adjustment = (40 - gap) / 2;
+          // Find and adjust corresponding player formation targets
+          for (const player of this._team.players) {
+            if (player.position === backPositionsY[i].position) {
+              player.formationY += adjustment;
+            }
+            if (player.position === backPositionsY[i - 1].position) {
+              player.formationY -= adjustment;
+            }
+          }
+        }
+      }
+    }
   }
 
   private decideAttack(ball: Ball, phaseCount: number): void {
-    // Fatigue check
+    // Fatigue check — stricter threshold for heavy fatigue
     const isFatigued = this._team.avgStamina < 50;
+    const isHeavilyFatigued = this._team.avgStamina < 40;
     
+    // Fatigue-aware: reduce risk when heavily fatigued
+    if (isHeavilyFatigued) {
+      this.riskAppetite = Math.max(0.1, this.riskAppetite - 0.2);
+    }
+
     // Select formation
     if (this.riskAppetite > 0.7 && !isFatigued) {
       this.formationManager.setFormation(FormationType.WIDE_ATTACK);
@@ -211,6 +263,15 @@ export class TeamAI {
     // Available plays based on difficulty & risk & fatigue
     const plays: PlayCall[] = ['CRASH_BALL', 'SKIP_PASS'];
 
+    // Fatigue-aware: heavily fatigued teams stick to simple plays
+    if (isHeavilyFatigued) {
+      // Try to substitute the most fatigued player
+      this._team.substituteFatigued(25);
+      // Only crash ball and simple passes when exhausted
+      this.currentPlay = 'CRASH_BALL';
+      return;
+    }
+
     // Difficulty limits variety
     const variety = this.difficulty.playVariety;
     
@@ -221,11 +282,17 @@ export class TeamAI {
     if (variety >= 12 && inOpp22 && Math.random() < 0.3) plays.push('GRUBBER');
 
     // Adaptive weighting: duplicate plays that have high success scores
+    //   Scaling by difficulty: EASY = flat, MEDIUM = weak boost, HARD = strong boost
     const weightedPlays: PlayCall[] = [];
+    const adaptDivisor = this.difficulty.playVariety <= 3 ? 0 : (this.difficulty.playVariety <= 6 ? 10 : 5);
     for (const p of plays) {
-      const score = this.playSuccessStats.get(p) || 10;
-      const weight = Math.max(1, Math.floor(score / 5)); // Higher score -> more entries
-      for (let i = 0; i < weight; i++) weightedPlays.push(p);
+      if (adaptDivisor === 0) {
+        weightedPlays.push(p); // EASY: flat weighting, no adaptation
+      } else {
+        const score = this.playSuccessStats.get(p) || 10;
+        const weight = Math.max(1, Math.floor(score / adaptDivisor));
+        for (let i = 0; i < weight; i++) weightedPlays.push(p);
+      }
     }
 
     // Trailing logic
@@ -263,8 +330,13 @@ export class TeamAI {
       ? ballX < PITCH.LINE_22_LEFT + 50
       : ballX > PITCH.LINE_22_RIGHT - 50;
 
-    // Adaptive: if opponent is gaining ground, press up (Blitz) to disrupt
-    if (nearOwnLine || (this.opponentGainingGround && this.difficulty.playVariety > 3)) {
+    // Adaptive defense: detect opponent play patterns
+    const dominantPlay = this.detectOpponentPattern();
+    
+    // If opponent repeatedly uses wide plays, go Blitz to disrupt
+    if (dominantPlay === 'SKIP_PASS' || dominantPlay === 'SWITCH' || dominantPlay === 'LOOP') {
+      this.formationManager.setFormation(FormationType.BLITZ_DEFENSE);
+    } else if (nearOwnLine || (this.opponentGainingGround && this.difficulty.playVariety > 3)) {
       this.formationManager.setFormation(FormationType.BLITZ_DEFENSE);
     } else if (this.riskAppetite > 0.6) {
       this.formationManager.setFormation(FormationType.DRIFT_DEFENSE);
@@ -273,12 +345,10 @@ export class TeamAI {
     }
     
     // Ruck Aggression
-    // Near try line -> High aggression
-    // Drift defense -> Low aggression
     if (nearOwnLine) {
         this._team.ruckAggression = 5;
     } else if (this.formationManager.getCurrentFormation() === FormationType.DRIFT_DEFENSE) {
-        this._team.ruckAggression = 2; // Save players for the line
+        this._team.ruckAggression = 2;
     } else {
         this._team.ruckAggression = 3;
     }
@@ -296,6 +366,36 @@ export class TeamAI {
     } else if (ownScore > opponentScore) {
       this.riskAppetite = Math.max(0.2, 0.5 - (ownScore - opponentScore) * 0.03);
     }
+  }
+
+  /** Record an opponent play call for adaptive defense tracking */
+  recordOpponentPlay(play: PlayCall): void {
+    this.opponentPlayHistory.push(play);
+    if (this.opponentPlayHistory.length > TeamAI.OPPONENT_HISTORY_SIZE) {
+      this.opponentPlayHistory.shift();
+    }
+  }
+
+  /** Detect if opponent is repeating a specific play pattern.
+   *  Gated by difficulty: EASY=disabled, MEDIUM=needs 5+ plays, HARD=needs 3.
+   */
+  private detectOpponentPattern(): PlayCall | null {
+    // Strategic adaptation scaling (M5.6)
+    if (this.difficulty.playVariety <= 3) return null; // EASY: no adaptation
+    const minHistory = this.difficulty.playVariety <= 6 ? 5 : 3; // MEDIUM vs HARD threshold
+    if (this.opponentPlayHistory.length < minHistory) return null;
+    
+    // Count occurrences of each play in recent history
+    const counts = new Map<PlayCall, number>();
+    for (const play of this.opponentPlayHistory) {
+      counts.set(play, (counts.get(play) || 0) + 1);
+    }
+    
+    // If any play used 3+ times in last 5 plays, it's a pattern
+    for (const [play, count] of counts) {
+      if (count >= 3) return play;
+    }
+    return null;
   }
 
   setDifficulty(config: DifficultyConfig): void {

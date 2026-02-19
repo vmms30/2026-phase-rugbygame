@@ -52,6 +52,8 @@ export interface GameEvents {
   secondHalfStart: Record<string, never>;
   /** Order from TeamAI to PlayerAI */
   teamOrder: { playerId: string; order: 'KICK' | 'PASS' };
+  /** Player substitution */
+  substitution: { teamSide: 'home' | 'away'; outPlayer: string; inPlayer: string; subsRemaining: number };
 }
 
 type EventCallback<T> = (data: T) => void;

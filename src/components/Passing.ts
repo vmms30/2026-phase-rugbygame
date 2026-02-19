@@ -89,10 +89,12 @@ export type OffloadResult =
 
 export function attemptOffload(
   carrier: Player,
-  supportPlayers: Player[]
+  supportPlayers: Player[],
+  passAccuracyBonus: number = 0,
 ): OffloadResult {
-  // 1. Valid stats check
-  if (carrier.stats.handling < 70) return { type: 'NO_ATTEMPT' };
+  // 1. Valid stats check — apply difficulty modifier
+  const effectiveHandling = carrier.stats.handling + passAccuracyBonus;
+  if (effectiveHandling < 70) return { type: 'NO_ATTEMPT' };
 
   // 2. Determine best support player
   let bestSupport: Player | null = null;
@@ -110,10 +112,8 @@ export function attemptOffload(
 
   if (!bestSupport) return { type: 'NO_ATTEMPT' };
 
-  // 3. Success check
-  // Higher handling = better chance. Pressure from tackle reduces it.
-  const handling = carrier.stats.handling;
-  const baseChance = (handling / 100) * 0.8; 
+  // 3. Success check — difficulty-adjusted handling
+  const baseChance = (effectiveHandling / 100) * 0.8; 
   
   if (Math.random() < baseChance) {
     return { type: 'SUCCESS', target: bestSupport };

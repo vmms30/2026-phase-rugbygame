@@ -9,6 +9,8 @@
 import Phaser from 'phaser';
 import type { Player } from '../entities/Player';
 import { RUCK } from '../utils/Constants';
+import type { DifficultyConfig } from '../utils/Constants';
+import { DIFFICULTY } from '../utils/Constants';
 import { EventBus } from '../utils/EventBus';
 
 export interface RuckState {
@@ -40,6 +42,7 @@ export class RuckSystem {
   private tickTimer: number = 0;
   private scene: Phaser.Scene;
   private ruckZone: Phaser.GameObjects.Arc | null = null;
+  private difficulty: DifficultyConfig = DIFFICULTY.MEDIUM;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -108,7 +111,7 @@ export class RuckSystem {
     );
     const defPower = this.state.defenders.reduce(
       (sum, p) => sum + (p.stats.strength + p.stats.workRate) / 200, 0
-    );
+    ) * this.difficulty.ruckStrengthModifier;
 
     // Ensure at least some base power
     const atkTotal = Math.max(atkPower, 0.3);
@@ -136,6 +139,11 @@ export class RuckSystem {
 
     // Infringement check (random, weighted by awareness)
     this.checkInfringements();
+  }
+
+  /** Set difficulty config for ruck strength scaling */
+  setDifficulty(config: DifficultyConfig): void {
+    this.difficulty = config;
   }
 
   /** Random infringement check during ruck */

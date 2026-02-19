@@ -94,6 +94,13 @@ export class MatchScene extends Phaser.Scene {
     super({ key: 'MatchScene' });
   }
 
+  /** Read scene data from TeamSelectScene */
+  init(data: { homeTeam?: { name: string; color: number }; awayTeam?: { name: string; color: number }; difficulty?: 'EASY' | 'MEDIUM' | 'HARD' }): void {
+    if (data.difficulty && DIFFICULTY[data.difficulty]) {
+      this.difficulty = DIFFICULTY[data.difficulty];
+    }
+  }
+
   create(): void {
     // ── Draw the pitch ──────────────────────────────────
     this.drawPitch();
@@ -145,6 +152,9 @@ export class MatchScene extends Phaser.Scene {
     this.offsidesSystem = new OffsidesSystem();
     this.kickoffSystem = new KickoffSystem(this.ball);
     this.powerBar = new PowerBar();
+
+    // Cascade difficulty config to sub-systems
+    this.ruckSystem.setDifficulty(this.difficulty);
 
     // Start with kickoff → open play
     this.phaseManager.transition('OPEN_PLAY');
@@ -208,6 +218,7 @@ export class MatchScene extends Phaser.Scene {
     // ── Update maul system ──────────────────────────────
     if (this.maulSystem.isActive()) {
       this.maulSystem.update(delta, this.ball);
+      this.autoCommitToMaul();
     }
 
 
@@ -218,6 +229,30 @@ export class MatchScene extends Phaser.Scene {
     } else {
       this.offsidesSystem.clearRuckOffside();
       this.offsidesSystem.setGeneralOffsideLine(this.ball.sprite.x);
+    }
+
+    // ── Offside interference check (M5.4) ────────────────
+    if (this.ruckSystem.isActive() && this.ball.carrier) {
+      const carrierX = this.ball.carrier.sprite.x;
+      const carrierY = this.ball.carrier.sprite.y;
+      const checkTeam = this.ball.carrier.teamSide === 'home' ? this.awayTeam : this.homeTeam;
+      
+      for (const p of checkTeam.players) {
+        if (p.isInRuck || p.isGrounded) continue;
+        if (!this.offsidesSystem.isOffside(p)) continue;
+        
+        const distToCarrier = Math.hypot(p.sprite.x - carrierX, p.sprite.y - carrierY);
+        if (distToCarrier < 80) {
+          // Offside player interfering with play — penalty
+          EventBus.emit('penaltyAwarded', {
+            x: p.sprite.x,
+            y: p.sprite.y,
+            reason: 'Offside — interfering with play',
+            severity: 'penalty' as const,
+          });
+          break; // Only one penalty at a time
+        }
+      }
     }
 
     // ── Update Kickoff System ───────────────────────────
@@ -293,6 +328,9 @@ export class MatchScene extends Phaser.Scene {
 
     drawPlayerDebug(this.homeTeam, 0x00ff00);
     drawPlayerDebug(this.awayTeam, 0xff0000);
+
+    // Draw offside debug lines (M5.4)
+    this.offsidesSystem.renderDebugLine(this.debugGraphics);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -518,7 +556,7 @@ export class MatchScene extends Phaser.Scene {
       const carrierTeam = carrier.teamSide === 'home' ? this.homeTeam : this.awayTeam;
       const teammates = carrierTeam.players.filter(p => p !== carrier);
       
-      const offloadResult = attemptOffload(carrier, teammates);
+      const offloadResult = attemptOffload(carrier, teammates, this.difficulty.passAccuracyBonus);
 
       if (offloadResult.type === 'SUCCESS') {
          const target = offloadResult.target;
@@ -578,17 +616,47 @@ export class MatchScene extends Phaser.Scene {
       let recipient = winningTeam.getPlayerByPosition(Position.SCRUM_HALF); // Default 9
 
       if (data.action === 'maul') {
-          // Ball to Jumper/Forward (e.g. Lock 5)
+          // Driving maul from lineout (M5.3)
+          const ballX = this.ball.sprite.x;
+          const nearTryLine = data.team === 'home'
+            ? ballX > PITCH.LINE_22_RIGHT
+            : ballX < PITCH.LINE_22_LEFT;
+
+          if (nearTryLine) {
+            // Start a driving maul instead of giving ball to backs
+            const jumper = winningTeam.getPlayerByPosition(5) || winningTeam.getPlayerByPosition(4);
+            const supporter = winningTeam.getPlayerByPosition(1); // Loosehead prop as initial supporter
+            
+            if (jumper && supporter) {
+              // Find a defender to act as the tackler in the maul
+              const oppTeam = data.team === 'home' ? this.awayTeam : this.homeTeam;
+              const nearestDef = oppTeam.players
+                .filter(p => !p.isGrounded && !p.isInRuck && p.position <= 8)
+                .sort((a, b) => {
+                  const dA = Math.hypot(a.sprite.x - jumper.sprite.x, a.sprite.y - jumper.sprite.y);
+                  const dB = Math.hypot(b.sprite.x - jumper.sprite.x, b.sprite.y - jumper.sprite.y);
+                  return dA - dB;
+                })[0];
+
+              if (nearestDef && this.phaseManager.canTransition('MAUL')) {
+                this.ball.attachToPlayer(jumper);
+                this.phaseManager.transition('MAUL');
+                this.maulSystem.startMaul(jumper, nearestDef, supporter, data.team === 'home');
+                this.cameras.main.zoomTo(CAMERA.ZOOM_DEFAULT, 1000, 'cubic.out');
+                this.scene.resume();
+                return;
+              }
+            }
+          }
+          
+          // Fallback: ball to Lock/Forward
           recipient = winningTeam.getPlayerByPosition(5) || winningTeam.getPlayerByPosition(4) || recipient;
       } else if (data.action === 'blindside' || data.action === 'openside') {
-          // Ball to SH (9) as usual, but could trigger specific backline move
-          // For now, just ensure SH gets it.
-          // In future: winningTeam.startMove(data.action);
+          // Ball to SH (9) as usual
       }
 
       if (recipient) {
         this.ball.attachToPlayer(recipient);
-        // Reset camera zoom
         this.cameras.main.zoomTo(CAMERA.ZOOM_DEFAULT, 1000, 'cubic.out');
       }
 
@@ -837,7 +905,8 @@ export class MatchScene extends Phaser.Scene {
     // PITCH.M_TO_PX = 10. So 400px = 40m.
     // ScoringSystem uses px directly.
     
-    const success = this.scoringSystem.attemptDropGoal(kicker.teamSide, kicker.stats.kicking, dist);
+    const effectiveKicking = kicker.stats.kicking * this.difficulty.kickAccuracyModifier;
+    const success = this.scoringSystem.attemptDropGoal(kicker.teamSide, effectiveKicking, dist);
     
     // Animate Kick
     // We want a high arc (Drop Goal type)
@@ -1299,26 +1368,71 @@ export class MatchScene extends Phaser.Scene {
           this.ball.dropLoose(p.sprite.x, p.sprite.y);
           break;
 
-        case 'normal':
-          // Normal tackle → ruck forms
-          p.getsTackled();
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
-          });
-          this.ball.dropLoose(p.sprite.x, p.sprite.y);
-
-          // Transition to TACKLE then RUCK
-          if (this.phaseManager.canTransition('TACKLE')) {
-            this.phaseManager.transition('TACKLE');
-            this.time.delayedCall(500, () => {
-              if (this.phaseManager.canTransition('RUCK')) {
-                this.phaseManager.transition('RUCK');
-                this.ruckSystem.startRuck(p.sprite.x, p.sprite.y);
-              }
+        case 'normal': {
+          // Check if carrier stays on feet (potential maul)
+          const carrierStrong = p.stats.strength > this.controlledPlayer.stats.strength * 0.9;
+          
+          if (carrierStrong) {
+            // Carrier stays on feet — check for supporter to form maul
+            this.controlledPlayer.isGrounded = true;
+            this.time.delayedCall(result.tacklerRecoveryMs, () => {
+              this.controlledPlayer.isGrounded = false;
             });
+
+            // Find nearest teammate within support distance
+            const supporter = this.awayTeam.players.find(teammate => {
+              if (teammate === p || teammate.isGrounded || teammate.isInRuck) return false;
+              const dist = Math.hypot(
+                teammate.sprite.x - p.sprite.x,
+                teammate.sprite.y - p.sprite.y
+              );
+              return dist < 80;
+            });
+
+            if (supporter && this.phaseManager.canTransition('TACKLE')) {
+              this.phaseManager.transition('TACKLE');
+              this.time.delayedCall(500, () => {
+                if (this.phaseManager.canTransition('MAUL')) {
+                  this.phaseManager.transition('MAUL');
+                  const attacksRight = p.teamSide === 'home';
+                  this.maulSystem.startMaul(p, this.controlledPlayer, supporter, attacksRight);
+                }
+              });
+            } else {
+              // No supporter — falls to ground, ruck
+              p.getsTackled();
+              this.ball.dropLoose(p.sprite.x, p.sprite.y);
+              if (this.phaseManager.canTransition('TACKLE')) {
+                this.phaseManager.transition('TACKLE');
+                this.time.delayedCall(500, () => {
+                  if (this.phaseManager.canTransition('RUCK')) {
+                    this.phaseManager.transition('RUCK');
+                    this.ruckSystem.startRuck(p.sprite.x, p.sprite.y);
+                  }
+                });
+              }
+            }
+          } else {
+            // Normal tackle — ruck forms
+            p.getsTackled();
+            this.controlledPlayer.isGrounded = true;
+            this.time.delayedCall(result.tacklerRecoveryMs, () => {
+              this.controlledPlayer.isGrounded = false;
+            });
+            this.ball.dropLoose(p.sprite.x, p.sprite.y);
+
+            if (this.phaseManager.canTransition('TACKLE')) {
+              this.phaseManager.transition('TACKLE');
+              this.time.delayedCall(500, () => {
+                if (this.phaseManager.canTransition('RUCK')) {
+                  this.phaseManager.transition('RUCK');
+                  this.ruckSystem.startRuck(p.sprite.x, p.sprite.y);
+                }
+              });
+            }
           }
           break;
+        }
 
         case 'missed':
           // Tackler stumbles, carrier keeps going
@@ -1370,6 +1484,47 @@ export class MatchScene extends Phaser.Scene {
         p.isInRuck = true;
         p.moveToward(ruckState.x, ruckState.y, 0.5);
         this.ruckSystem.commitPlayer(p, false);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // MAUL AUTO-COMMIT (M5.3)
+  // ─────────────────────────────────────────────────────────
+
+  private autoCommitToMaul(): void {
+    const maulState = this.maulSystem.getState();
+    if (!maulState.active) return;
+
+    const maulPos = { x: maulState.x, y: maulState.y };
+
+    // Commit nearest forwards from attacking team
+    for (const p of this.homeTeam.players) {
+      if (p === this.controlledPlayer || p.isGrounded || p.isInRuck) continue;
+      if (p.position > 8) continue; // Only forwards join mauls
+      const d = distance({ x: p.sprite.x, y: p.sprite.y }, maulPos);
+      if (d < 100 && maulState.attackers.length < 5) {
+        this.maulSystem.commitPlayer(p, true);
+      }
+    }
+
+    // Commit nearest forwards from defending team
+    for (const p of this.awayTeam.players) {
+      if (p.isGrounded || p.isInRuck) continue;
+      if (p.position > 8) continue;
+      const d = distance({ x: p.sprite.x, y: p.sprite.y }, maulPos);
+      if (d < 100 && maulState.defenders.length < 4) {
+        this.maulSystem.commitPlayer(p, false);
+      }
+    }
+
+    // Ball transfer: after 2s of progressing, release ball
+    const elapsed = Date.now() - maulState.startTime;
+    if (elapsed > 2000 && maulState.attackers.length >= 2) {
+      const atkStr = maulState.attackers.reduce((s, p) => s + p.stats.strength, 0);
+      const defStr = maulState.defenders.reduce((s, p) => s + p.stats.strength, 0);
+      if (atkStr > defStr) {
+        this.maulSystem.releaseBall();
       }
     }
   }

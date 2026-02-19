@@ -361,42 +361,42 @@
 ### 5.1 Advanced Team AI
 - [x] Score-aware decisions: trailing team takes more risks, leading team plays conservative
 - [x] Time-aware: final 10 min → urgency modifier on play calling
-- [ ] Fatigue-aware: sub fatigued players, reduce sprint calls
-- [ ] Adaptive: track what attack patterns work, repeat successful ones
-- [ ] Adaptive: track opponent attack patterns, adjust defense
+- [x] Fatigue-aware: sub fatigued players, reduce sprint calls
+- [x] Adaptive: track what attack patterns work, repeat successful ones
+- [x] Adaptive: track opponent attack patterns, adjust defense
 - [x] Increase play variety: `SWITCH`, `LOOP`, `INSIDE_BALL`, `BOX_KICK`, `GRUBBER`, `DROP_GOAL_ATTEMPT`
 - [x] Risk appetite float (0–1): drives aggressive vs conservative balance
-- [ ] Verify AI adapts behavior based on score, time, and fatigue
+- [x] Verify AI adapts behavior based on score, time, and fatigue
 
 ### 5.2 Off-Ball Player Intelligence
-- [ ] Support runners: forwards offer crash option at correct depth
-- [ ] Backs run designated lines at staggered depths
-- [ ] Decoy runners: players run lines without receiving to draw defenders
-- [ ] Post-contact support: 2 nearest forwards auto-seek ruck cleanup
-- [ ] Remaining players realign for next phase (return to formation)
-- [ ] Fullback insert line: fullback joins backline in attack contextually
-- [ ] Width and depth maintenance: players keep proper spacing
-- [ ] Verify off-ball movement looks intelligent and purposeful
+- [x] Support runners: forwards offer crash option at correct depth
+- [x] Backs run designated lines at staggered depths
+- [x] Decoy runners: players run lines without receiving to draw defenders
+- [x] Post-contact support: 2 nearest forwards auto-seek ruck cleanup
+- [x] Remaining players realign for next phase (return to formation)
+- [x] Fullback insert line: fullback joins backline in attack contextually
+- [x] Width and depth maintenance: players keep proper spacing
+- [x] Verify off-ball movement looks intelligent and purposeful
 
 ### 5.3 Maul System
-- [ ] Ball carrier contacted but stays on feet (strength comparison)
-- [ ] Supporting teammate arrives within 1 s → MAUL forms
-- [ ] Maul entity: attack + defense player groups
-- [ ] Maul moves forward at crawl speed × (atk_strength / def_strength)
-- [ ] Ball transfer backward through maul
-- [ ] Maul collapse: defense overpowers for 3 s or stalled
-- [ ] Maul collapse → SCRUM awarded
-- [ ] Driving maul from lineout (common near try line)
-- [ ] Verify maul forms, moves, ball emerges or collapses
+- [x] Ball carrier contacted but stays on feet (strength comparison)
+- [x] Supporting teammate arrives within 1 s → MAUL forms
+- [x] Maul entity: attack + defense player groups
+- [x] Maul moves forward at crawl speed × (atk_strength / def_strength)
+- [x] Ball transfer backward through maul
+- [x] Maul collapse: defense overpowers for 3 s or stalled
+- [x] Maul collapse → SCRUM awarded
+- [x] Driving maul from lineout (common near try line)
+- [x] Verify maul forms, moves, ball emerges or collapses
 
 ### 5.4 Offside System
 - [x] Create `src/systems/OffsidesSystem.ts`
 - [x] Track offside line at rucks (hindmost foot of last player)
 - [x] Track offside line at scrums/lineouts
 - [x] Track offside line in general play (behind last player who played ball)
-- [ ] Visual indicator: dotted line on pitch showing offside line (optional debug mode)
+- [x] Visual indicator: dotted line on pitch showing offside line (optional debug mode)
 - [x] AI players respect offside line (return behind before engaging)
-- [ ] Penalize players ahead of offside line who interfere with play
+- [x] Penalize players ahead of offside line who interfere with play
 - [x] Verify offside detection and enforcement
 
 ### 5.5 Drop Goal Mechanic
@@ -410,15 +410,15 @@
 
 ### 5.6 Difficulty Scaling
 - [x] Create difficulty configuration: Easy, Medium, Hard — defined in Constants.ts
-- [ ] AI reaction delay: 400 ms / 200 ms / 50 ms
-- [ ] Tackle success bonus: −15% / 0% / +10%
-- [ ] Pass accuracy bonus: −10% / 0% / +15%
-- [ ] TeamAI play variety: 3 / 6 / 12+ plays
-- [ ] Defensive read speed: slow / standard / near-instant
-- [ ] Ruck contest strength: weakened / balanced / boosted
-- [ ] Kicking accuracy: low / medium / high
-- [ ] Strategic adaptation: none / partial / full
-- [ ] Selectable from team select menu
+- [x] AI reaction delay: 400 ms / 200 ms / 50 ms
+- [x] Tackle success bonus: −15% / 0% / +10%
+- [x] Pass accuracy bonus: −10% / 0% / +15%
+- [x] TeamAI play variety: 3 / 6 / 12+ plays
+- [x] Defensive read speed: slow / standard / near-instant
+- [x] Ruck contest strength: weakened / balanced / boosted
+- [x] Kicking accuracy: low / medium / high
+- [x] Strategic adaptation: none / partial / full
+- [x] Selectable from team select menu
 - [ ] Verify each difficulty feels distinctly different
 
 ---

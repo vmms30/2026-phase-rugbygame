@@ -1,3 +1,4 @@
+import Phaser from 'phaser';
 import { PITCH } from '../utils/Constants';
 import type { Player } from '../entities/Player';
 
@@ -17,11 +18,8 @@ export class OffsidesSystem {
   setRuckOffsideLine(ruckX: number, isActive: boolean): void {
     this.isRuckActive = isActive;
     if (isActive) {
-      // Ruck radius approx 60px
       const RUCK_RADIUS = 60;
-      // Home attacks Right -> Offside line is Left of ruck (min X)
       this.homeOffsideLineX = ruckX - RUCK_RADIUS;
-      // Away attacks Left -> Offside line is Right of ruck (max X)
       this.awayOffsideLineX = ruckX + RUCK_RADIUS;
     }
   }
@@ -32,9 +30,6 @@ export class OffsidesSystem {
 
   /**
    * Set general play offside line (e.g. based on ball)
-   * In open play, you just need to be behind the ball carrier to receive.
-   * For defense, there isn't a static "offside line" across the field unless a kick happens (10m law).
-   * For now, we set them to extremes to allow play.
    */
   setGeneralOffsideLine(_ballX: number): void {
     if (!this.isRuckActive) {
@@ -48,20 +43,10 @@ export class OffsidesSystem {
    */
   getOffsidePenalty(player: Player, _opponentAttacksRight: boolean): { isOffside: boolean; penaltyPos?: {x: number, y: number} } {
     if (player.teamSide === 'home') {
-      // Home must be > homeOffsideLineX (Right of line) in specific contexts?
-      // WAIT.
-      // Home attacks Right (Increasing X). 
-      // To be "behind" the ball/ruck, they must be to the LEFT (Smaller X).
-      // So Valid Home Region is X < homeOffsideLineX.
-      // Offside is X > homeOffsideLineX.
       if (player.sprite.x > this.homeOffsideLineX) {
         return { isOffside: true, penaltyPos: { x: this.homeOffsideLineX, y: player.sprite.y } };
       }
     } else {
-      // Away attacks Left (Decreasing X).
-      // To be "behind" ball/ruck, they must be to the RIGHT (Larger X).
-      // So Valid Away Region is X > awayOffsideLineX.
-      // Offside is X < awayOffsideLineX.
       if (player.sprite.x < this.awayOffsideLineX) {
         return { isOffside: true, penaltyPos: { x: this.awayOffsideLineX, y: player.sprite.y } };
       }
@@ -73,7 +58,7 @@ export class OffsidesSystem {
    * Check if a player is offside (simple boolean).
    */
   isOffside(player: Player): boolean {
-    const result = this.getOffsidePenalty(player, player.teamSide !== 'home'); // generic assumption for second arg
+    const result = this.getOffsidePenalty(player, player.teamSide !== 'home');
     return result.isOffside;
   }
 
@@ -83,5 +68,40 @@ export class OffsidesSystem {
   
   toggleDebug(): void {
     this.debugMode = !this.debugMode;
+  }
+
+  isDebugActive(): boolean {
+    return this.debugMode;
+  }
+
+  /**
+   * Render offside debug lines on the pitch (M5.4).
+   * Draws dotted red line for home offside, blue for away.
+   */
+  renderDebugLine(graphics: Phaser.GameObjects.Graphics): void {
+    if (!this.debugMode || !this.isRuckActive) return;
+
+    const pitchTop = 0;
+    const pitchBottom = PITCH.HEIGHT_PX;
+    const dashLength = 10;
+    const gapLength = 8;
+
+    // Home offside line (red)
+    graphics.lineStyle(2, 0xff0000, 0.7);
+    for (let y = pitchTop; y < pitchBottom; y += dashLength + gapLength) {
+      graphics.lineBetween(
+        this.homeOffsideLineX, y,
+        this.homeOffsideLineX, Math.min(y + dashLength, pitchBottom)
+      );
+    }
+
+    // Away offside line (blue)
+    graphics.lineStyle(2, 0x0000ff, 0.7);
+    for (let y = pitchTop; y < pitchBottom; y += dashLength + gapLength) {
+      graphics.lineBetween(
+        this.awayOffsideLineX, y,
+        this.awayOffsideLineX, Math.min(y + dashLength, pitchBottom)
+      );
+    }
   }
 }
