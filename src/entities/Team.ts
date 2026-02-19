@@ -196,7 +196,12 @@ export class Team {
 
     // 1. DESIGNATED TACKLER — Sprint toward ball carrier
     if (designatedTackler) {
-      designatedTackler.moveToward(carrierX, carrierY, 1.2);
+      // designatedTackler.moveToward(carrierX, carrierY, 1.2);
+       designatedTackler.updateAI(0, available, { x: carrierX, y: carrierY }); 
+       // Note: updateAI calculates force based on maxSpeed. We might need to boost maxSpeed for sprint?
+       // For now, let's rely on standard stats. The 1.2x was a cheat.
+       // We can temporarily boost stats? Or just let standard stats apply.
+       // Let's stick to standard stats for now to see if natural speed separation works.
 
       // AUTO-TACKLE: If in range, attempt tackle
       const tacklerDist = distance(
@@ -230,7 +235,8 @@ export class Team {
       const maxX = Math.max(ourTryLine, defenseLineX);
       const targetX = Math.max(minX, Math.min(maxX, defenseLineX));
 
-      defender.moveToward(targetX, targetY, 0.7);
+      // defender.moveToward(targetX, targetY, 0.7);
+      defender.updateAI(0, sortedDefenders, { x: targetX, y: targetY });
 
       // Second tackler — if very close to carrier, also tackle
       const dist = distance(
@@ -247,7 +253,8 @@ export class Team {
       const sweepOffset = this.side === 'home' ? -80 : 80;
       const sweepX = defenseLineX + sweepOffset;
       const sweepY = carrierY * 0.6 + (PITCH.HEIGHT_PX / 2) * 0.4;
-      fullback.moveToward(sweepX, sweepY, 0.6);
+      // fullback.moveToward(sweepX, sweepY, 0.6);
+      fullback.updateAI(0, available, { x: sweepX, y: sweepY });
     }
   }
 
@@ -265,20 +272,15 @@ export class Team {
       if (player.hasBall) {
         const targetX = this.side === 'home' ? PITCH.TRY_LINE_RIGHT : PITCH.TRY_LINE_LEFT;
         const weaveY = player.sprite.y + Math.sin(Date.now() / 600) * 20;
-        player.moveToward(targetX, weaveY, 0.85);
+        // player.moveToward(targetX, weaveY, 0.85);
+        player.updateAI(0, this.players, { x: targetX, y: weaveY });
         continue;
       }
 
       // Support runner logic handled by TeamAI
       // We just move toward our assigned formation position
-      const distToHelper = distance(
-        { x: player.sprite.x, y: player.sprite.y },
-        { x: player.formationX, y: player.formationY }
-      );
-      
-      // If far from position, run fast; if close, jog
-      const speed = distToHelper > 100 ? 0.85 : 0.5;
-      player.moveToward(player.formationX, player.formationY, speed);
+      // player.moveToward(player.formationX, player.formationY, speed);
+      player.updateAI(0, this.players, { x: player.formationX, y: player.formationY });
     }
   }
 
@@ -302,14 +304,16 @@ export class Team {
       const distToBall = distance({ x: player.sprite.x, y: player.sprite.y }, ballPos);
 
       if (chaserCount < MAX_CHASERS && distToBall < 200) {
-        player.moveToward(ballPos.x, ballPos.y, 1.0);
+        // player.moveToward(ballPos.x, ballPos.y, 1.0);
+        player.updateAI(0, sortedByDist, { x: ballPos.x, y: ballPos.y });
         chaserCount++;
 
         if (distToBall < 15 && !ball.carrier && ball.state === 'loose') {
           ball.attachToPlayer(player);
         }
       } else {
-        player.moveToward(player.formationX, player.formationY, 0.4);
+        // player.moveToward(player.formationX, player.formationY, 0.4);
+        player.updateAI(0, this.players, { x: player.formationX, y: player.formationY });
       }
     }
   }

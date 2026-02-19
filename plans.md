@@ -120,16 +120,16 @@
 - [x] Receiver enters "catch" state on ball arrival
 - [x] Catch success probability based on `handling` stat
 - [x] Failed catch → knock-on event → ball loose on ground
-- [ ] Handle "no eligible receiver" case (queue play call or short dump)
+- [x] Handle "no eligible receiver" case (queue play call or short dump)
 - [x] Verify each pass type, catch success/failure, knock-on trigger
 
 ### 2.6 Offload System
-- [ ] Detect if ball carrier is being tackled AND `handling > 75`
-- [ ] Check for nearby teammate within offload range
+- [x] Detect if ball carrier is being tackled AND `handling > 75`
+- [x] Check for nearby teammate within offload range
 - [x] Probability-based offload execution (logic in Passing.ts canOffload)
-- [ ] Successful offload → ball passed mid-tackle, play continues
-- [ ] Failed offload → knock-on
-- [ ] Verify offloads trigger during tackle, succeed/fail correctly
+- [x] Successful offload → ball passed mid-tackle, play continues
+- [x] Failed offload → knock-on
+- [x] Verify offloads trigger during tackle, succeed/fail correctly
 
 ### 2.7 Kicking System
 - [x] Create `src/components/Kicking.ts` — kick logic component
@@ -152,7 +152,7 @@
 ### 2.8 Tackling System
 - [x] Create `src/components/Tackle.ts` — tackle logic component
 - [x] **Space key** on defense: initiate tackle when within 40 px of ball carrier
-- [ ] Tackle animation: lunge in facing direction
+- [x] Tackle animation: lunge in facing direction
 - [x] Hit detection: circle overlap between tackler hitbox and ball carrier
 - [x] Success probability calculation:
   - [x] `(tackler.tackling + tackler.strength)` vs `(carrier.strength + carrier.speed × momentum_factor)`
@@ -191,7 +191,7 @@
 - [x] Emit events on each transition (via EventBus)
 - [x] Track phase count (increments on each ruck recycle)
 - [x] Display current phase count on HUD
-- [ ] Write unit test: `PhaseManager.test.ts` — state transitions
+- [x] Write unit test: `PhaseManager.test.ts` — state transitions
 - [x] Verify phase cycling works during gameplay
 
 ---

@@ -6,6 +6,7 @@
  */
 import Phaser from 'phaser';
 import { PLAYER, Direction, Position } from '../utils/Constants';
+import { arrive, separation, blendForces } from '../ai/SteeringBehaviors';
 
 /** Player stat profile */
 export interface PlayerStats {
@@ -180,6 +181,20 @@ export class Player {
   }
 
   /**
+   * Stun the player for a short duration (recovery).
+   */
+  recover(durationMs: number): void {
+    this.isGrounded = true;
+    this.sprite.setVelocity(0, 0);
+    this.sprite.setTint(0xaaaaaa);
+
+    this.scene.time.delayedCall(durationMs, () => {
+      this.isGrounded = false;
+      this.sprite.clearTint();
+    });
+  }
+
+  /**
    * Pick up a loose ball.
    */
   pickUpBall(): void {
@@ -222,6 +237,44 @@ export class Player {
    */
   setVelocity(x: number, y: number): void {
     this.sprite.setVelocity(x, y);
+  }
+
+  /**
+   * AI Update: Calculate steering forces.
+   */
+  updateAI(delta: number, neighbors: Player[], targetPos: { x: number, y: number }): void {
+    if (this.isGrounded || this.isInRuck) {
+      this.sprite.setVelocity(0, 0);
+      return;
+    }
+
+    const pos = { x: this.sprite.x, y: this.sprite.y };
+    const maxSpeed = (this.stats.speed / 100) * PLAYER.RUN_SPEED * 100;
+
+    // 1. Arrive at target (Formation)
+    const arriveForce = arrive(pos, targetPos, maxSpeed, 50);
+
+    // 2. Separation from neighbors (prevent bunching)
+    // Filter neighbors to only those close by
+    const neighborPos = neighbors
+      .filter(n => n !== this && !n.isGrounded && !n.isInRuck)
+      .map(n => ({ x: n.sprite.x, y: n.sprite.y }));
+    
+    const separationForce = separation(pos, neighborPos, 40);
+
+    // 3. Blend forces
+    // Arrive is main driver (weight 1.0), Separation is secondary (weight 1.5 to enforce space)
+    const totalForce = blendForces([
+      { force: arriveForce, weight: 1.0 },
+      { force: separationForce, weight: 1.5 }
+    ], maxSpeed); 
+
+    this.sprite.setVelocity(totalForce.x, totalForce.y);
+
+    // Update facing
+    if (totalForce.x !== 0 || totalForce.y !== 0) {
+      this.facing = this.computeDirection(totalForce.x, totalForce.y);
+    }
   }
 
   /**

@@ -72,3 +72,60 @@ export function canOffload(handling: number, isBeingTackled: boolean, nearbyTeam
   const chance = (handling - 75) / 25; // 0–1 for handling 75–100
   return Math.random() < chance * 0.6; // Max 60% chance
 }
+
+/**
+ * Attempt to perform an offload.
+ * Returns the target player if successful, null otherwise.
+ */
+import type { Player } from '../entities/Player';
+
+/**
+ * Offload Outcome Types
+ */
+export type OffloadResult = 
+  | { type: 'SUCCESS', target: Player }
+  | { type: 'FAILED_KNOCKON' }
+  | { type: 'NO_ATTEMPT' };
+
+export function attemptOffload(
+  carrier: Player,
+  supportPlayers: Player[]
+): OffloadResult {
+  // 1. Valid stats check
+  if (carrier.stats.handling < 70) return { type: 'NO_ATTEMPT' };
+
+  // 2. Determine best support player
+  let bestSupport: Player | null = null;
+  let minDist = 1000;
+
+  for (const p of supportPlayers) {
+    if (p === carrier || p.isGrounded || p.isInRuck) continue;
+    // Offload must be close range
+    const d = Phaser.Math.Distance.Between(carrier.sprite.x, carrier.sprite.y, p.sprite.x, p.sprite.y);
+    if (d < 60 && d < minDist) {
+      minDist = d;
+      bestSupport = p;
+    }
+  }
+
+  if (!bestSupport) return { type: 'NO_ATTEMPT' };
+
+  // 3. Success check
+  // Higher handling = better chance. Pressure from tackle reduces it.
+  const handling = carrier.stats.handling;
+  const baseChance = (handling / 100) * 0.8; 
+  
+  if (Math.random() < baseChance) {
+    return { type: 'SUCCESS', target: bestSupport };
+  } else {
+    // Failed attempt!
+    // High handling reduces knock-on chance on fail
+    // If handling is 70, fail chance is high. Knock-on chance should be existing.
+    // e.g. 20% chance of knock-on if failed?
+    if (Math.random() < 0.3) {
+       return { type: 'FAILED_KNOCKON' };
+    }
+  }
+
+  return { type: 'NO_ATTEMPT' };
+}

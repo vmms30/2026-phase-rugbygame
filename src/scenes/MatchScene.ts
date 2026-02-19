@@ -24,9 +24,9 @@ import { ScoringSystem } from '../systems/ScoringSystem';
 import { MaulSystem } from '../systems/MaulSystem';
 import { OffsidesSystem } from '../systems/OffsidesSystem';
 import { KickoffSystem } from '../systems/KickoffSystem';
-import { resolveTackle, isInTackleRange } from '../components/Tackle';
+import { resolveTackle, isInTackleRange, animateTackle } from '../components/Tackle';
 import { PowerBar, KickType, KICK_CONFIGS, calculateKickDistance, calculateKickDeviation } from '../components/Kicking';
-import { selectPassType, PASS_CONFIGS } from '../components/Passing';
+import { selectPassType, PASS_CONFIGS, attemptOffload } from '../components/Passing';
 import { catchProbability } from '../components/Stats';
 
 export class MatchScene extends Phaser.Scene {
@@ -46,6 +46,10 @@ export class MatchScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
+  // Debug graphics
+  // private debugGraphics!: Phaser.GameObjects.Graphics; // Added in method above, but good to declare here if needed? 
+  // Actually, I added it as a property in the previous block. 
+  // Let's add the key setup in setupInput.
 
   // ── Minimap ────────────────────────────────────────────
   private minimapCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -255,6 +259,40 @@ export class MatchScene extends Phaser.Scene {
 
     // ── Update HUD ──────────────────────────────────────
     this.updateHUD();
+
+    // ── DEBUG: AI Visualization ─────────────────────────
+    // Toggle with P key (setup in input)
+    if (this.keys.P?.isDown) {
+      this.drawAIDebug();
+    } else {
+      this.debugGraphics?.clear();
+    }
+  }
+
+  private debugGraphics!: Phaser.GameObjects.Graphics;
+
+  private drawAIDebug(): void {
+    if (!this.debugGraphics) {
+      this.debugGraphics = this.add.graphics().setDepth(100);
+    }
+    this.debugGraphics.clear();
+
+    const drawPlayerDebug = (team: Team, color: number) => {
+      this.debugGraphics.lineStyle(1, color, 0.5);
+      for (const p of team.players) {
+        // Draw line to formation target
+        this.debugGraphics.beginPath();
+        this.debugGraphics.moveTo(p.sprite.x, p.sprite.y);
+        this.debugGraphics.lineTo(p.formationX, p.formationY);
+        this.debugGraphics.strokePath();
+        
+        // Draw target circle
+        this.debugGraphics.strokeCircle(p.formationX, p.formationY, 2);
+      }
+    };
+
+    drawPlayerDebug(this.homeTeam, 0x00ff00);
+    drawPlayerDebug(this.awayTeam, 0xff0000);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -376,6 +414,9 @@ export class MatchScene extends Phaser.Scene {
 
       if (!tackler || !carrier) return;
 
+      // Visual: Animation
+      animateTackle(this, tackler.sprite, carrier.sprite.x, carrier.sprite.y);
+
       // 1. Offside Check: Penalize tackler if they were offside
       // Defender side attacks strictly OPPOSITE to ball carrier?
       // Actually, check if tackler's team is defending against Right or Left attack.
@@ -397,7 +438,41 @@ export class MatchScene extends Phaser.Scene {
          }
       }
 
-      // 2. Maul Trigger: heldUp outcome + support
+      // 2. Offload Attempt
+      const carrierTeam = carrier.teamSide === 'home' ? this.homeTeam : this.awayTeam;
+      const teammates = carrierTeam.players.filter(p => p !== carrier);
+      
+      const offloadResult = attemptOffload(carrier, teammates);
+
+      if (offloadResult.type === 'SUCCESS') {
+         const target = offloadResult.target;
+         this.ball.passTo(carrier, target);
+         EventBus.emit('ballPassed', {
+            passerId: carrier.id,
+            receiverId: target.id,
+            type: 'POP'
+         });
+         
+         tackler.recover(1000); 
+         carrier.recover(500);
+         return;
+      } else if (offloadResult.type === 'FAILED_KNOCKON') {
+         // Fumbled the offload!
+         this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
+         carrier.releaseBall();
+         EventBus.emit('knockOn', { playerId: carrier.id });
+         
+         // Trigger scrum sequence?
+         if (this.phaseManager.canTransition('KNOCK_ON')) {
+             this.phaseManager.transition('KNOCK_ON');
+             this.time.delayedCall(1500, () => {
+                 this.phaseManager.transition('SCRUM');
+             });
+         }
+         return; // Ball lost, no ruck
+      }
+
+      // 3. Maul Trigger: heldUp outcome + support
       if (result.outcome === 'heldUp') {
          const carrierTeam = carrier.teamSide === 'home' ? this.homeTeam : this.awayTeam;
          const support = carrierTeam.getClosestPlayer(carrier.sprite.x, carrier.sprite.y, [carrier]);
@@ -929,6 +1004,19 @@ export class MatchScene extends Phaser.Scene {
           }
         }
       });
+    } else {
+       // Visual feedback: No receiver
+       const label = this.add.text(carrier.sprite.x, carrier.sprite.y - 30, '?', {
+         fontSize: '20px', color: '#ffff00', fontStyle: 'bold'
+       }).setOrigin(0.5);
+       
+       this.tweens.add({
+         targets: label,
+         y: label.y - 30,
+         alpha: 0,
+         duration: 800,
+         onComplete: () => label.destroy()
+       });
     }
   }
 

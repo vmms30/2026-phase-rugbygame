@@ -107,3 +107,21 @@ export function isInTackleRange(
   const dy = tacklerY - carrierY;
   return (dx * dx + dy * dy) <= tackleRange * tackleRange;
 }
+
+/**
+ * Animate a tackle lunge.
+ */
+export function animateTackle(scene: Phaser.Scene, tackler: Phaser.Physics.Arcade.Image, targetX: number, targetY: number): void {
+  scene.tweens.add({
+    targets: tackler,
+    x: targetX,
+    y: targetY,
+    duration: 200,
+    yoyo: true,
+    ease: 'Power2',
+    onComplete: () => {
+       // Optional: shake screen slightly for impact?
+       // scene.cameras.main.shake(100, 0.005);
+    }
+  });
+}
