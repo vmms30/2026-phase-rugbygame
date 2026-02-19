@@ -28,6 +28,7 @@ import { resolveTackle, isInTackleRange, animateTackle } from '../components/Tac
 import { PowerBar, KickType, KICK_CONFIGS, calculateKickDistance, calculateKickDeviation } from '../components/Kicking';
 import { selectPassType, PASS_CONFIGS, attemptOffload } from '../components/Passing';
 import { catchProbability } from '../components/Stats';
+import { AudioManager } from '../systems/AudioManager';
 
 export class MatchScene extends Phaser.Scene {
   // ── Teams & Ball ───────────────────────────────────────
@@ -89,6 +90,16 @@ export class MatchScene extends Phaser.Scene {
 
   // ── HUD helpers ────────────────────────────────────────
   private hudElements: Phaser.GameObjects.GameObject[] = [];
+
+  // ── Territory tracking ─────────────────────────────────
+  private territoryHomeSamples = 0;
+  private territoryTotalSamples = 0;
+
+  // ── Minimap viewport rect ──────────────────────────────
+  private minimapViewRect!: Phaser.GameObjects.Graphics;
+
+  // ── Audio ──────────────────────────────────────────────
+  private audioManager!: AudioManager;
 
   constructor() {
     super({ key: 'MatchScene' });
@@ -165,6 +176,10 @@ export class MatchScene extends Phaser.Scene {
 
     // ── Minimap ─────────────────────────────────────────
     this.setupMinimap();
+
+    // ── Audio Manager ────────────────────────────────────
+    this.audioManager = new AudioManager(this);
+    this.audioManager.startCrowdAmbience();
 
     // ── Input ───────────────────────────────────────────
     this.setupInput();
@@ -294,6 +309,18 @@ export class MatchScene extends Phaser.Scene {
 
     // ── Update HUD ──────────────────────────────────────
     this.updateHUD();
+
+    // ── Territory tracking ──────────────────────────────
+    this.territoryTotalSamples++;
+    if (this.ball.sprite.x < PITCH.HALFWAY) {
+      this.territoryHomeSamples++; // Ball in home's half  
+    }
+
+    // ── Minimap viewport rect ───────────────────────────
+    this.updateMinimapViewport();
+
+    // ── Audio ───────────────────────────────────────────
+    this.audioManager.update(delta);
 
     // ── DEBUG: AI Visualization ─────────────────────────
     // Toggle with P key (setup in input)
@@ -471,10 +498,14 @@ export class MatchScene extends Phaser.Scene {
       this.clockSystem.pause();
       // Launch half-time scene overlay
       const score = this.scoringSystem.getScore();
+      const territoryPct = this.territoryTotalSamples > 0
+        ? Math.round((this.territoryHomeSamples / this.territoryTotalSamples) * 100)
+        : 50;
       this.scene.launch('HalfTimeScene', {
         homeScore: score.home,
         awayScore: score.away,
         possession: 50,
+        territory: territoryPct,
         tackles: { home: 0, away: 0 },
         passes: { home: 0, away: 0 },
         carries: { home: 0, away: 0 },
@@ -728,6 +759,11 @@ export class MatchScene extends Phaser.Scene {
          this.scene.pause();
       }
     });
+
+    // ── Play Selected from PlaySelector UI ───────────────
+    EventBus.on('playSelected', (data: { play: string }) => {
+      this.homeTeamAI.setCurrentPlay(data.play as any);
+    });
   }
 
   // ─────────────────────────────────────────────────────────
@@ -886,6 +922,22 @@ export class MatchScene extends Phaser.Scene {
     ).setStrokeStyle(1, 0x4ade80).setScrollFactor(0).setDepth(100);
     this.minimapCamera.ignore(border);
     this.hudElements.push(border);
+
+    // Viewport rectangle (drawn in world coords, visible on minimap)
+    this.minimapViewRect = this.add.graphics().setDepth(50);
+  }
+
+  /** Update the viewport rectangle on the minimap showing the main camera's visible area. */
+  private updateMinimapViewport(): void {
+    if (!this.minimapViewRect) return;
+    this.minimapViewRect.clear();
+    const cam = this.cameras.main;
+    const x = cam.scrollX;
+    const y = cam.scrollY;
+    const w = cam.width / cam.zoom;
+    const h = cam.height / cam.zoom;
+    this.minimapViewRect.lineStyle(3, 0x4ade80, 0.8);
+    this.minimapViewRect.strokeRect(x, y, w, h);
   }
 
   // ── Drop Goal Logic ──────────────────────────────────

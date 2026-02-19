@@ -6,6 +6,7 @@
  */
 
 import Phaser from 'phaser';
+import { EventBus } from '../utils/EventBus';
 
 export type TacticalPlay = 'CRASH_BALL' | 'SKIP_PASS' | 'SWITCH' | 'LOOP' | 'INSIDE_BALL' | 'KICK' | 'BOX_KICK' | 'GRUBBER';
 
@@ -74,6 +75,7 @@ export class PlaySelector {
         const key = this.scene.input.keyboard.addKey(keyCode);
         key.once('down', () => {
           this.selectedPlay = PLAYS[i].play;
+          EventBus.emit('playSelected', { play: this.selectedPlay });
           this.close();
         });
       }

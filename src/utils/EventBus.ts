@@ -54,6 +54,8 @@ export interface GameEvents {
   teamOrder: { playerId: string; order: 'KICK' | 'PASS' };
   /** Player substitution */
   substitution: { teamSide: 'home' | 'away'; outPlayer: string; inPlayer: string; subsRemaining: number };
+  /** Play selected from PlaySelector UI */
+  playSelected: { play: string };
 }
 
 type EventCallback<T> = (data: T) => void;

@@ -8,6 +8,7 @@ interface HalfTimeData {
   homeScore: number;
   awayScore: number;
   possession: number; // Home possession %
+  territory: number;  // Home territory %
   tackles: { home: number; away: number };
   passes: { home: number; away: number };
   penalties: { home: number; away: number };
@@ -44,6 +45,7 @@ export class HalfTimeScene extends Phaser.Scene {
     // Stats table
     const stats = [
       ['Possession', `${this.sceneData.possession}%`, `${100 - this.sceneData.possession}%`],
+      ['Territory', `${this.sceneData.territory ?? 50}%`, `${100 - (this.sceneData.territory ?? 50)}%`],
       ['Tackles', String(this.sceneData.tackles.home), String(this.sceneData.tackles.away)],
       ['Passes', String(this.sceneData.passes.home), String(this.sceneData.passes.away)],
       ['Penalties', String(this.sceneData.penalties.home), String(this.sceneData.penalties.away)],

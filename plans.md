@@ -436,15 +436,15 @@
 - [x] Context action prompts (bottom-center): show current available actions
 - [x] Player name label under controlled player
 - [x] Clock flashes when in added time
-- [ ] All HUD elements update in real-time
+- [x] All HUD elements update in real-time
 - [ ] Verify HUD accuracy throughout a full match
 
 ### 6.2 Minimap (Final)
-- [ ] Minimap renders full pitch in corner
-- [ ] All 30 players shown as team-colored dots
-- [ ] Ball shown as white dot
-- [ ] Camera viewport rectangle shown on minimap
-- [ ] Semi-transparent background
+- [x] Minimap renders full pitch in corner
+- [x] All 30 players shown as team-colored dots
+- [x] Ball shown as white dot
+- [x] Camera viewport rectangle shown on minimap
+- [x] Semi-transparent background
 - [ ] Verify minimap reflects game state accurately
 
 ### 6.3 Play Selector
@@ -452,25 +452,25 @@
 - [x] **Tab key** opens tactical play overlay
 - [x] Display 4–8 play options with icons and names
 - [x] **1–4 keys** quick-select common plays (crash, skip, switch, loop)
-- [ ] Selecting play sends command to TeamAI
+- [x] Selecting play sends command to TeamAI
 - [x] Overlay closes after selection or timeout (3 s)
 - [ ] Verify play selection triggers correct AI behavior
 
 ### 6.4 Kick Type Selector
-- [ ] **T key** opens kick type menu overlay
-- [ ] Display kick options: punt, grubber, box kick, drop goal, touch finder
-- [ ] Select with arrow keys + enter, or number keys
-- [ ] Selected kick type used on next R press
+- [x] **T key** opens kick type menu overlay
+- [x] Display kick options: punt, grubber, box kick, drop goal, touch finder
+- [x] Select with arrow keys + enter, or number keys
+- [x] Selected kick type used on next R press
 - [ ] Verify kick type selector UI and function
 
 ### 6.5 Title / Menu Screen
-- [ ] Create `src/scenes/MenuScene.ts` (full implementation)
-- [ ] Game logo / title art
-- [ ] "Play Match" button → team select
-- [ ] "Settings" button → settings panel
-- [ ] "Credits" button → credits overlay
-- [ ] Smooth transitions between menu items
-- [ ] Aesthetically polished design (gradients, animations)
+- [x] Create `src/scenes/MenuScene.ts` (full implementation)
+- [x] Game logo / title art
+- [x] "Play Match" button → team select
+- [x] "Settings" button → settings panel
+- [x] "Credits" button → credits overlay
+- [x] Smooth transitions between menu items
+- [x] Aesthetically polished design (gradients, animations)
 - [ ] Verify all menu navigation works
 
 ### 6.6 Team Select Screen
@@ -478,14 +478,14 @@
 - [x] Team list with names and kit preview (tinted sprites)
 - [x] Difficulty selector (Easy / Medium / Hard)
 - [x] "Start Match" button
-- [ ] Verify selections carry through to match
+- [x] Verify selections carry through to match
 
 ### 6.7 Pause Menu
 - [x] Create `src/ui/PauseMenu.ts`
 - [x] **Esc key** toggles pause menu overlay
 - [x] Resume button
 - [x] Restart match button
-- [ ] Settings button (volume, controls)
+- [x] Settings button (volume, controls)
 - [x] Quit to menu button
 - [x] Game world pauses (physics, clock, AI)
 - [ ] Verify pause/resume does not break game state
@@ -496,7 +496,7 @@
   - [x] Possession %
   - [x] Tackles made / missed
   - [x] Passes completed / errors
-  - [ ] Territory %
+  - [x] Territory %
   - [x] Carries / meters gained
   - [x] Penalties conceded
 - [x] "Continue" button to start second half
@@ -518,41 +518,41 @@
 - [x] Half-time trigger at 40 min
 - [x] Full-time trigger at 80 min
 - [x] Injury time: random 1–5 extra minutes at each half
-- [ ] HUD clock updates every frame
+- [x] HUD clock updates every frame
 - [ ] Verify match runs correct duration with stoppages
 
 ### 6.11 Audio — Ambient
-- [ ] Source or create crowd hum loop
-- [ ] Crowd volume scales with excitement:
-  - [ ] Near try line → louder
-  - [ ] Try scored → roar
-  - [ ] Penalty goal → moderate cheer
-  - [ ] Boring play → quiet
-- [ ] Positional audio: sounds softer for off-screen events
+- [x] Source or create crowd hum loop
+- [x] Crowd volume scales with excitement:
+  - [x] Near try line → louder
+  - [x] Try scored → roar
+  - [x] Penalty goal → moderate cheer
+  - [x] Boring play → quiet
+- [x] Positional audio: sounds softer for off-screen events
 
 ### 6.12 Audio — SFX
-- [ ] Tackle thud sound effect
-- [ ] Ball pass whoosh
-- [ ] Ball kick thump
-- [ ] Referee whistle (short for penalty, long for try/half/full-time)
-- [ ] Ball bounce on ground
-- [ ] Boot on ball (kick)
-- [ ] Crowd roar on try
-- [ ] Crowd gasp on big tackle
-- [ ] Conversion/penalty kick post hit (clang)
+- [x] Tackle thud sound effect
+- [x] Ball pass whoosh
+- [x] Ball kick thump
+- [x] Referee whistle (short for penalty, long for try/half/full-time)
+- [x] Ball bounce on ground
+- [x] Boot on ball (kick)
+- [x] Crowd roar on try
+- [x] Crowd gasp on big tackle
+- [x] Conversion/penalty kick post hit (clang)
 
 ### 6.13 Audio — UI
-- [ ] Menu button hover sound
-- [ ] Menu button select sound
-- [ ] Clock tick in final 5 minutes
-- [ ] Play selector open/close sound
-- [ ] Score change chime
+- [x] Menu button hover sound
+- [x] Menu button select sound
+- [x] Clock tick in final 5 minutes
+- [x] Play selector open/close sound
+- [x] Score change chime
 
 ### 6.14 Audio — Infrastructure
-- [ ] Set up Phaser `SoundManager` in `BootScene`
-- [ ] Load all audio files during boot
-- [ ] Volume controls in settings (master, SFX, crowd)
-- [ ] Mute toggle
+- [x] Set up Phaser `SoundManager` in `BootScene`
+- [x] Load all audio files during boot
+- [x] Volume controls in settings (master, SFX, crowd)
+- [x] Mute toggle
 - [ ] Verify all sounds play at correct moments
 
 ---

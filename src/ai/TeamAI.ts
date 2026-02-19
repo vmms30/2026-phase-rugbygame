@@ -406,6 +406,11 @@ export class TeamAI {
     return this.currentPlay;
   }
 
+  /** Override the current play call (e.g. from PlaySelector UI). */
+  setCurrentPlay(play: PlayCall): void {
+    this.currentPlay = play;
+  }
+
   getRiskAppetite(): number {
     return this.riskAppetite;
   }
