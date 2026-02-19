@@ -10,6 +10,7 @@ import { AI, PITCH, DIFFICULTY } from '../utils/Constants';
 import type { DifficultyConfig } from '../utils/Constants';
 import type { Team } from '../entities/Team';
 import type { Ball } from '../entities/Ball';
+import { EventBus } from '../utils/EventBus';
 
 export type PlayCall = 'CRASH_BALL' | 'SKIP_PASS' | 'SWITCH' | 'LOOP' | 'INSIDE_BALL' | 'KICK' | 'BOX_KICK' | 'GRUBBER' | 'DROP_GOAL_ATTEMPT';
 
@@ -234,6 +235,26 @@ export class TeamAI {
 
     // Pick random from weighted
     this.currentPlay = weightedPlays[Math.floor(Math.random() * weightedPlays.length)] || 'CRASH_BALL';
+
+    // TRIGGER ACT: If carrier is AI, force state based on play
+    if (ball.carrier && ball.carrier.teamSide === this.side && !ball.carrier.isGrounded && !ball.carrier.isInRuck) {
+       // We need access to the PlayerAI instance for the carrier. 
+       // Currently `TeamAI` doesn't hold references to `PlayerAI`s, only `Player` entities.
+       // `Player` entity doesn't expose its AI.
+       // ARCHITECTURE ISSUE: TeamAI needs to signal the PlayerAI.
+       // Option A: EventBus event 'teamOrder' -> PlayerAI listens.
+       // Option B: PlayerAI polls TeamAI?
+       // Let's use EventBus for loose coupling.
+       
+       if (this.currentPlay === 'KICK' || this.currentPlay === 'BOX_KICK' || this.currentPlay === 'GRUBBER') {
+          EventBus.emit('teamOrder', { playerId: ball.carrier.id, order: 'KICK' });
+       } else if (this.currentPlay === 'SKIP_PASS' || this.currentPlay === 'SWITCH' || this.currentPlay === 'LOOP') {
+           // For pass plays, we might want to delay slightly or let Carry state handle it?
+           // For now, let's force PASSING state immediately for demonstration of wiring.
+           EventBus.emit('teamOrder', { playerId: ball.carrier.id, order: 'PASS' });
+       }
+       // CRASH_BALL just implies CARRY implies default behavior.
+    }
   }
 
   private decideDefense(ball: Ball): void {
@@ -249,6 +270,17 @@ export class TeamAI {
       this.formationManager.setFormation(FormationType.DRIFT_DEFENSE);
     } else {
       this.formationManager.setFormation(FormationType.STANDARD_DEFENSE);
+    }
+    
+    // Ruck Aggression
+    // Near try line -> High aggression
+    // Drift defense -> Low aggression
+    if (nearOwnLine) {
+        this._team.ruckAggression = 5;
+    } else if (this.formationManager.getCurrentFormation() === FormationType.DRIFT_DEFENSE) {
+        this._team.ruckAggression = 2; // Save players for the line
+    } else {
+        this._team.ruckAggression = 3;
     }
   }
 

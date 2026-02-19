@@ -57,6 +57,15 @@ const DEFENSE_FORMATION: Record<Position, { rx: number; ry: number }> = {
   [Position.FULLBACK]:          { rx: 0.70, ry: 0.50 },
 };
 
+export interface TeamStats {
+  rating: number; // Overall team rating
+  strength: number; // Pack strength
+  speed: number;
+  kicking: number;
+  handling: number;
+  color: number;
+}
+
 export class Team {
   readonly side: 'home' | 'away';
   readonly color: number;
@@ -69,13 +78,16 @@ export class Team {
   /** Current difficulty configuration */
   private difficulty: DifficultyConfig = DIFFICULTY.MEDIUM;
 
-  /** Average stamina of the team (0-100) */
+  // AI / Tactics
+  ruckAggression: number = 3; // 1-5, how many players commit to ruck
+  
+  // Average stats for quick access
   public avgStamina: number = 100;
 
-  constructor(scene: Phaser.Scene, side: 'home' | 'away', color: number) {
+  constructor(scene: Phaser.Scene, side: 'home' | 'away', stats: TeamStats) {
     this.scene = scene;
     this.side = side;
-    this.color = color;
+    this.color = stats.color;
 
     // Create all 15 players
     const formation = side === 'home' ? ATTACK_FORMATION : DEFENSE_FORMATION;
@@ -103,7 +115,8 @@ export class Team {
         y = f.ry * PITCH.HEIGHT_PX;
       }
 
-      const player = new Player(scene, x, y, pos, side, color);
+      const player = new Player(scene, x, y, pos, side, this.color);
+      player.team = this;
       this.players.push(player);
     }
   }

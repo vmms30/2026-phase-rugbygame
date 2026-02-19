@@ -50,6 +50,8 @@ export interface GameEvents {
   fullTime: Record<string, never>;
   /** Second half starts from HalfTimeScene */
   secondHalfStart: Record<string, never>;
+  /** Order from TeamAI to PlayerAI */
+  teamOrder: { playerId: string; order: 'KICK' | 'PASS' };
 }
 
 type EventCallback<T> = (data: T) => void;

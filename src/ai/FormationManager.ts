@@ -136,4 +136,8 @@ export class FormationManager {
   getFormation(): FormationType {
     return this.currentFormation;
   }
+  
+  getCurrentFormation(): FormationType {
+    return this.currentFormation;
+  }
 }

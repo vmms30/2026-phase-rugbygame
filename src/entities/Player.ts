@@ -52,6 +52,7 @@ export class Player {
   readonly position: Position;
   readonly teamSide: 'home' | 'away';
   readonly stats: PlayerStats;
+  public team: any; // Circular dependency workaround
 
   sprite: Phaser.Physics.Arcade.Image;
   facing: Direction = Direction.E;
@@ -242,7 +243,7 @@ export class Player {
   /**
    * AI Update: Calculate steering forces.
    */
-  updateAI(delta: number, neighbors: Player[], targetPos: { x: number, y: number }): void {
+  updateAI(_delta: number, neighbors: Player[], targetPos: { x: number, y: number }, weights?: { arrive?: number; separation?: number }): void {
     if (this.isGrounded || this.isInRuck) {
       this.sprite.setVelocity(0, 0);
       return;
@@ -263,10 +264,13 @@ export class Player {
     const separationForce = separation(pos, neighborPos, 40);
 
     // 3. Blend forces
-    // Arrive is main driver (weight 1.0), Separation is secondary (weight 1.5 to enforce space)
+    // Defaults: Arrive 1.0, Separation 1.5
+    const wArrive = weights?.arrive ?? 1.0;
+    const wSep = weights?.separation ?? 1.5;
+
     const totalForce = blendForces([
-      { force: arriveForce, weight: 1.0 },
-      { force: separationForce, weight: 1.5 }
+      { force: arriveForce, weight: wArrive },
+      { force: separationForce, weight: wSep }
     ], maxSpeed); 
 
     this.sprite.setVelocity(totalForce.x, totalForce.y);

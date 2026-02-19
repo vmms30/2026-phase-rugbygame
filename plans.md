@@ -277,30 +277,31 @@
 ## M4 — AI Version 1 (Week 7–8)
 
 ### 4.1 Finite State Machine Framework
+### 4.1 FSM
 - [x] Create `src/ai/FSM.ts` — generic reusable FSM class
 - [x] Support: addState, addTransition, update, getCurrentState
 - [x] Enter/exit callbacks per state
 - [x] Condition-based automatic transitions
-- [ ] Write unit test: `FSM.test.ts` — add states, trigger transitions, verify callbacks
-- [ ] Verify FSM drives correct behavior sequence
+- [x] Write unit test: `FSM.test.ts` — add states, trigger transitions, verify callbacks
+- [x] Verify FSM drives correct behavior sequence
 
 ### 4.2 Player AI States
 - [x] Create `src/ai/PlayerAI.ts` — FSM instance per AI player
 - [x] Implement state: **IDLE** — stand at position, scan for events
 - [x] Implement state: **SUPPORT_ATTACK** — run support line, offer as pass option
 - [x] Implement state: **CARRY_BALL** — run with ball, decide pass/kick/contact
-- [ ] Implement state: **PASSING** — execute pass to best option
-- [ ] Implement state: **KICKING** — execute kick decision
+- [x] Implement state: **PASSING** — execute pass to best option
+- [x] Implement state: **KICKING** — execute kick decision
 - [x] Implement state: **DEFEND** — hold defensive line position
 - [x] Implement state: **CHASE_BALL** — pursue loose ball
 - [x] Implement state: **TACKLE** — close on ball carrier and attempt tackle
 - [x] Implement state: **RUCK_BIND** — commit to ruck
-- [ ] Implement state: **MAUL_BIND** — commit to maul
+- [x] Implement state: **MAUL_BIND** — commit to maul
 - [x] Implement state: **RETURN_POSITION** — jog back to formation position
 - [x] Implement state: **SET_PIECE** — take set-piece position
 - [x] Implement state: **CELEBRATE** — try scored celebration
 - [x] Wire transitions between all states based on game phase and events
-- [ ] Verify AI players transition correctly during gameplay
+- [x] Verify AI players transition correctly during gameplay
 
 ### 4.3 Steering Behaviors
 - [x] Create `src/ai/SteeringBehaviors.ts`
@@ -317,8 +318,8 @@
 - [x] Implement **Obstacle Avoidance** — steer around grounded/rucking players
 - [x] Implement weighted blending: combine multiple behaviors, truncate to max acceleration
 - [ ] Per-state weight profiles (e.g., DEFEND: pursue=0.8, cohesion=0.5, separation=0.3)
-- [ ] Write unit test: `SteeringBehaviors.test.ts` — verify force vectors for each behavior
-- [ ] Verify behaviors produce natural-looking movement in-game
+- [x] Write unit test: `SteeringBehaviors.test.ts` — verify force vectors for each behavior
+- [x] Verify behaviors produce natural-looking movement in-game
 
 ### 4.4 Formation Manager
 - [x] Create `src/ai/FormationManager.ts`
@@ -332,8 +333,8 @@
   - [x] `STANDARD_DEFENSE` — flat line, man markers
 - [x] Calculate target positions for all 15 players per formation
 - [x] Positions adjust relative to ball position (shift left/right)
-- [ ] Smooth transition between formations (players glide to new positions)
-- [ ] Verify formation shapes visually on pitch
+- [x] Smooth transition between formations (players glide to new positions)
+- [x] Verify formation shapes visually on pitch
 
 ### 4.5 Team AI (Basic)
 - [x] Create `src/ai/TeamAI.ts` — coach brain, runs every 0.5 s
@@ -341,17 +342,17 @@
 - [x] Decision: simple play calling (`CRASH_BALL`, `SKIP_PASS`, `KICK`)
 - [ ] Decision: ruck commitment (how many players to send, 2–4)
 - [x] Decision: kicking — kick for territory if in own 22 or after 8+ phases
-- [ ] Wire TeamAI decisions to FormationManager and PlayerAI
-- [ ] Verify AI team moves cohesively, makes basic tactical decisions
+- [x] Wire TeamAI decisions to FormationManager and PlayerAI
+- [x] Verify AI team moves cohesively, makes basic tactical decisions
 
 ### 4.6 Defensive AI (Basic)
-- [ ] Implement **drift defense**: slide outward, maintain spacing
-- [ ] Implement **blitz defense**: rush up on ball carrier aggressively
-- [ ] Designated tackler: closest defender pursues ball carrier
-- [ ] Other defenders hold line and track assigned channels
-- [ ] Post-tackle: defenders retreat behind ruck offside line
-- [ ] Fullback/sweeper: hangs back, covers kick threats
-- [ ] Verify defensive line holds shape and makes tackles
+- [x] Implement **drift defense**: slide outward, maintain spacing
+- [x] Implement **blitz defense**: rush up on ball carrier aggressively
+- [x] Designated tackler: closest defender pursues ball carrier
+- [x] Other defenders hold line and track assigned channels
+- [x] Post-tackle: defenders retreat behind ruck offside line
+- [x] Fullback/sweeper: hangs back, covers kick threats
+- [x] Verify defensive line holds shape and makes tackles
 
 ---
 

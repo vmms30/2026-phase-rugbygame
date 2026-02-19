@@ -9,12 +9,16 @@ import { Player } from './Player';
 import { BALL } from '../utils/Constants';
 import { quadraticBezier, parabolicArc, vec2, distance as vecDist } from '../utils/MathHelpers';
 
-type BallState = 'carried' | 'passing' | 'kicked' | 'loose';
+type BallState = 'carried' | 'passing' | 'kicked' | 'loose' | 'ruck';
 
 export class Ball {
   sprite: Phaser.Physics.Arcade.Image;
   shadow: Phaser.GameObjects.Ellipse;
   state: BallState = 'loose';
+
+  get speed(): number {
+    return (this.sprite.body as Phaser.Physics.Arcade.Body)?.speed ?? 0;
+  }
 
   /** Current carrier (null when loose, passing, or kicked) */
   carrier: Player | null = null;
