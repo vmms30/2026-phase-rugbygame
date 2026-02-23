@@ -19,13 +19,13 @@ export interface GameEvents {
   /** Tackle occurred */
   tackle: { tacklerId: string; carrierId: string; outcome?: string; dominant?: boolean };
   /** Ruck formed */
-  ruckFormed: { x: number; y: number };
+  ruckFormed: { x: number; y: number; attackingTeam: 'home' | 'away' };
   /** Ruck resolved — ball recycled */
   ruckResolved: { team: 'home' | 'away'; action?: 'pass' | 'maul' | 'scrum_win' | 'blindside' | 'openside' };
   /** Ruck ball available for pickup */
-  ruckBallAvailable: { x: number; y: number };
+  ruckBallAvailable: { x: number; y: number; attackingTeam: 'home' | 'away' };
   /** Ruck turnover occurred */
-  ruckTurnover: { x: number; y: number };
+  ruckTurnover: { x: number; y: number; attackingTeam: 'home' | 'away' };
   /** Ruck timed out */
   ruckTimeout: { x: number; y: number };
   /** Ball kicked */

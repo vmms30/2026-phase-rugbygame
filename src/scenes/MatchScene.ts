@@ -24,9 +24,9 @@ import { ScoringSystem } from '../systems/ScoringSystem';
 import { MaulSystem } from '../systems/MaulSystem';
 import { OffsidesSystem } from '../systems/OffsidesSystem';
 import { KickoffSystem } from '../systems/KickoffSystem';
-import { resolveTackle, isInTackleRange, animateTackle } from '../components/Tackle';
+import { resolveTackle, isInTackleRange } from '../components/Tackle';
 import { PowerBar, KickType, KICK_CONFIGS, calculateKickDistance, calculateKickDeviation } from '../components/Kicking';
-import { selectPassType, PASS_CONFIGS, attemptOffload } from '../components/Passing';
+import { selectPassType, PASS_CONFIGS } from '../components/Passing';
 import { catchProbability } from '../components/Stats';
 import { AudioManager } from '../systems/AudioManager';
 
@@ -117,8 +117,14 @@ export class MatchScene extends Phaser.Scene {
     this.drawPitch();
 
     // ── Create teams ────────────────────────────────────
-    this.homeTeam = new Team(this, 'home', TEAM_COLORS.HOME);
-    this.awayTeam = new Team(this, 'away', TEAM_COLORS.AWAY);
+    this.homeTeam = new Team(this, 'home', {
+      rating: 75, strength: 70, speed: 72, kicking: 68, handling: 70,
+      color: TEAM_COLORS.HOME,
+    });
+    this.awayTeam = new Team(this, 'away', {
+      rating: 73, strength: 68, speed: 74, kicking: 70, handling: 72,
+      color: TEAM_COLORS.AWAY,
+    });
     
     // Set difficulty on teams
     this.homeTeam.setDifficulty(this.difficulty);
@@ -154,7 +160,32 @@ export class MatchScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.controlledPlayer.sprite, true, CAMERA.FOLLOW_LERP, CAMERA.FOLLOW_LERP);
     this.cameras.main.setZoom(CAMERA.ZOOM_DEFAULT);
 
+    // ── Physics colliders: prevent player sprites overlapping ──
+    // Build sprite arrays from team player lists
+    const homeSprites = this.homeTeam.players.map(p => p.sprite);
+    const awaySprites = this.awayTeam.players.map(p => p.sprite);
+
+    // Home vs Home
+    for (let i = 0; i < homeSprites.length; i++) {
+      for (let j = i + 1; j < homeSprites.length; j++) {
+        this.physics.add.collider(homeSprites[i], homeSprites[j]);
+      }
+    }
+    // Away vs Away
+    for (let i = 0; i < awaySprites.length; i++) {
+      for (let j = i + 1; j < awaySprites.length; j++) {
+        this.physics.add.collider(awaySprites[i], awaySprites[j]);
+      }
+    }
+    // Home vs Away
+    for (const h of homeSprites) {
+      for (const a of awaySprites) {
+        this.physics.add.collider(h, a);
+      }
+    }
+
     // ── M2/M3/M5 Systems ───────────────────────────────────
+
     this.phaseManager = new PhaseManager('KICK_OFF');
     this.ruckSystem = new RuckSystem(this);
     this.clockSystem = new ClockSystem();
@@ -212,7 +243,7 @@ export class MatchScene extends Phaser.Scene {
     if (this.controlledPlayer.stamina < PLAYER.STAMINA_MIN_SPRINT) {
       this.controlledPlayer.sprite.setTint(0xff6666);
     } else if (!this.controlledPlayer.isGrounded) {
-      this.controlledPlayer.sprite.setTint(TEAM_COLORS.HOME);
+      this.controlledPlayer.sprite.setTint(this.homeTeam.color);
     }
 
     // ── Update power bar if charging ────────────────────
@@ -298,14 +329,16 @@ export class MatchScene extends Phaser.Scene {
     }
 
     // ── Update AI players ───────────────────────────────
-    // Update AI Coaches (tactical decisions)
-    const phaseCount = this.phaseManager.getPhaseCount();
-    this.homeTeamAI.update(delta, this.ball, phaseCount);
-    this.awayTeamAI.update(delta, this.ball, phaseCount);
-    
-    // Update AI Players (movement/actions)
-    this.homeTeam.update(delta, this.ball, this.controlledPlayer);
-    this.awayTeam.update(delta, this.ball, null);
+    // Only run AI movement and decisions during active play
+    const activePhase = this.phaseManager.getPhase();
+    const isPlayPhase = activePhase === 'OPEN_PLAY' || activePhase === 'KICK_OFF';
+    if (isPlayPhase) {
+      const phaseCount = this.phaseManager.getPhaseCount();
+      this.homeTeamAI.update(delta, this.ball, phaseCount);
+      this.awayTeamAI.update(delta, this.ball, phaseCount);
+      this.homeTeam.update(delta, this.ball, this.controlledPlayer);
+      this.awayTeam.update(delta, this.ball, null);
+    }
 
     // ── Update HUD ──────────────────────────────────────
     this.updateHUD();
@@ -365,33 +398,40 @@ export class MatchScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────
 
   private setupEventListeners(): void {
-    EventBus.on('ruckBallAvailable', () => {
+    EventBus.on('ruckBallAvailable', (data: { x: number; y: number; attackingTeam: 'home' | 'away' }) => {
       if (this.phaseManager.canTransition('OPEN_PLAY')) {
         this.phaseManager.transition('OPEN_PLAY');
         this.ruckSystem.endRuck();
-        const sh = this.homeTeam.getPlayerByPosition(Position.SCRUM_HALF);
-        this.ball.attachToPlayer(sh);
+        // Give ball to the ATTACKING team's scrum-half
+        const attackTeam = data.attackingTeam === 'home' ? this.homeTeam : this.awayTeam;
+        const sh = attackTeam.getPlayerByPosition(Position.SCRUM_HALF);
+        if (sh) this.ball.attachToPlayer(sh);
       }
     });
 
-    EventBus.on('ruckTurnover', () => {
+    EventBus.on('ruckTurnover', (data: { x: number; y: number; attackingTeam: 'home' | 'away' }) => {
       if (this.phaseManager.canTransition('OPEN_PLAY')) {
         this.phaseManager.transition('OPEN_PLAY');
         this.ruckSystem.endRuck();
-        const awaySH = this.awayTeam.getPlayerByPosition(Position.SCRUM_HALF);
-        this.ball.attachToPlayer(awaySH);
+        // On turnover, attackingTeam is the NEW attacker (former defender)
+        const newAtkTeam = data.attackingTeam === 'home' ? this.homeTeam : this.awayTeam;
+        const sh = newAtkTeam.getPlayerByPosition(Position.SCRUM_HALF);
+        if (sh) this.ball.attachToPlayer(sh);
       }
     });
 
     EventBus.on('ruckTimeout', () => {
+      // 5s elapsed — award attacking team the ball via scrum
+      const atkSide = this.ruckSystem.getAttackingTeam();
       this.ruckSystem.endRuck();
       if (this.phaseManager.canTransition('SCRUM')) {
         this.phaseManager.transition('SCRUM');
         this.time.delayedCall(2000, () => {
           if (this.phaseManager.canTransition('OPEN_PLAY')) {
             this.phaseManager.transition('OPEN_PLAY');
-            const sh = this.homeTeam.getPlayerByPosition(Position.SCRUM_HALF);
-            this.ball.attachToPlayer(sh);
+            const atkTeam = atkSide === 'home' ? this.homeTeam : this.awayTeam;
+            const sh = atkTeam.getPlayerByPosition(Position.SCRUM_HALF);
+            if (sh) this.ball.attachToPlayer(sh);
           }
         });
       }
@@ -486,6 +526,24 @@ export class MatchScene extends Phaser.Scene {
              if (sh) this.ball.attachToPlayer(sh);
           });
       }
+
+      // ── Auto-resolve after 8s (prevents stuck PENALTY state) ─
+      const penaltyTimeout = this.time.delayedCall(8000, () => {
+        if (this.phaseManager.getPhase() !== 'PENALTY') return;
+        clearUI();
+        if (this.phaseManager.canTransition('OPEN_PLAY')) {
+          this.phaseManager.transition('OPEN_PLAY');
+        } else {
+          this.phaseManager.forcePhase('OPEN_PLAY');
+        }
+        const fallbackSH = this.homeTeam.getPlayerByPosition(9);
+        if (fallbackSH) this.ball.attachToPlayer(fallbackSH);
+      });
+      const cancelPenaltyTimeout = () => penaltyTimeout.remove(false);
+      this.input.keyboard?.once('keydown-ONE', cancelPenaltyTimeout);
+      this.input.keyboard?.once('keydown-TWO', cancelPenaltyTimeout);
+      this.input.keyboard?.once('keydown-THREE', cancelPenaltyTimeout);
+      this.input.keyboard?.once('keydown-FOUR', cancelPenaltyTimeout);
     });
 
     // ── M3: Clock events ─────────────────────────────────
@@ -550,95 +608,16 @@ export class MatchScene extends Phaser.Scene {
       // HUD picks up new score in updateHUD()
     });
 
-    // ── Tackle event: Handle Mauls and Offside Penalties ──
-    EventBus.on('tackle', (data: any) => {
-      // Team.ts emits { tacklerId, carrierId, outcome }
-      const tackler = this.getPlayerById(data.tacklerId);
-      const carrier = this.getPlayerById(data.carrierId);
-      const result = { outcome: data.outcome }; // Wrap outcome to match expected structure
-
-      if (!tackler || !carrier) return;
-
-      // Visual: Animation
-      animateTackle(this, tackler.sprite, carrier.sprite.x, carrier.sprite.y);
-
-      // 1. Offside Check: Penalize tackler if they were offside
-      // Defender side attacks strictly OPPOSITE to ball carrier?
-      // Actually, check if tackler's team is defending against Right or Left attack.
-      const isDefenderHome = tackler.teamSide === 'home';
-      const opponentAttacksRight = !isDefenderHome; // Home defends against Away(attacks Left). Away defends against Home(attacks Right).
-      // Wait, if Home attacks Right, Away defends against "attacksRight=true".
-      // If Away defends, isDefenderHome=false. opponentAttacksRight=true. Correct.
-      // If Home defends, opponentAttacksRight=false. Correct.
-
-      const penalty = this.offsidesSystem.getOffsidePenalty(tackler, opponentAttacksRight);
-
-      // Grace period? If they were retreating?
-      // Use a strict check for now.
-      if (penalty && penalty.isOffside) {
-         console.log(`OFFSIDE PENALTY against ${tackler.teamSide} at ${Math.round(tackler.sprite.x)}`);
-         if (this.phaseManager.canTransition('PENALTY')) {
-           this.phaseManager.transition('PENALTY');
-           return; // Penalty overrides tackle outcome
-         }
-      }
-
-      // 2. Offload Attempt
-      const carrierTeam = carrier.teamSide === 'home' ? this.homeTeam : this.awayTeam;
-      const teammates = carrierTeam.players.filter(p => p !== carrier);
-      
-      const offloadResult = attemptOffload(carrier, teammates, this.difficulty.passAccuracyBonus);
-
-      if (offloadResult.type === 'SUCCESS') {
-         const target = offloadResult.target;
-         this.ball.passTo(carrier, target);
-         EventBus.emit('ballPassed', {
-            passerId: carrier.id,
-            receiverId: target.id,
-            type: 'POP'
-         });
-         
-         tackler.recover(1000); 
-         carrier.recover(500);
-         return;
-      } else if (offloadResult.type === 'FAILED_KNOCKON') {
-         // Fumbled the offload!
-         this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
-         carrier.releaseBall();
-         EventBus.emit('knockOn', { playerId: carrier.id });
-         
-         // Trigger scrum sequence?
-         if (this.phaseManager.canTransition('KNOCK_ON')) {
-             this.phaseManager.transition('KNOCK_ON');
-             this.time.delayedCall(1500, () => {
-                 this.phaseManager.transition('SCRUM');
-             });
-         }
-         return; // Ball lost, no ruck
-      }
-
-      // 3. Maul Trigger: heldUp outcome + support
-      if (result.outcome === 'heldUp') {
-         const carrierTeam = carrier.teamSide === 'home' ? this.homeTeam : this.awayTeam;
-         const support = carrierTeam.getClosestPlayer(carrier.sprite.x, carrier.sprite.y, [carrier]);
-
-         if (support) {
-            const dist = Phaser.Math.Distance.Between(carrier.sprite.x, carrier.sprite.y, support.sprite.x, support.sprite.y);
-            if (dist < 60) {
-              // Start Maul
-              const attacksRight = carrier.teamSide === 'home';
-              this.maulSystem.startMaul(carrier, tackler, support, attacksRight);
-              return;
-            }
-         }
-         // If no support, eventually carrier might go to ground or break free?
-         // Currently generic logic in Team.ts handles subsequent movement/state?
-         // Actually no, Team.ts breaks out of switch for heldUp.
-         // So carrier stays standing. And tackler stays standing.
-         // They might tackle again in 1.5s.
-         // Just let them play on (standoff) until support arrives?
-      }
+    // ── Tackle event: cosmetics + audio only ────────────────────
+    // Game logic is handled in tryTackleOrFend() and Team.attemptAITackle()
+    // This handler is ONLY for side effects (audio, camera shake, etc.)
+    EventBus.on('tackle', (_data: any) => {
+      // Camera micro-shake on tackle
+      this.cameras.main.shake(80, 0.003);
     });
+
+
+
 
     // ── Set Piece Resolution ─────────────────────────────
     EventBus.on('ruckResolved', (data: { team: 'home' | 'away'; action?: string }) => {
@@ -1049,6 +1028,7 @@ export class MatchScene extends Phaser.Scene {
      }
   }
 
+  // @ts-ignore — kept for AI tackle handler compatibility
   private getPlayerById(id: string): Player | undefined {
     return this.homeTeam.players.find(p => p.id === id) || 
            this.awayTeam.players.find(p => p.id === id);
@@ -1367,7 +1347,7 @@ export class MatchScene extends Phaser.Scene {
   private closeKickSelector(): void {
     this.kickSelectorOpen = false;
     for (const item of this.kickSelectorItems) {
-      item.destroy();
+  item.destroy();
     }
     this.kickSelectorItems = [];
   }
@@ -1376,135 +1356,158 @@ export class MatchScene extends Phaser.Scene {
   // TACKLING & FENDING (M2.8)
   // ─────────────────────────────────────────────────────────
 
+  /** Cooldown to prevent tackle button spam */
+  private _tackleCooldown = false;
+
   private tryTackleOrFend(): void {
+    // Only allow during active play
+    const phase = this.phaseManager.getPhase();
+    if (phase !== 'OPEN_PLAY') return;
+
     // If player has ball → fend
     if (this.controlledPlayer.hasBall) {
       this._fendingActive = true;
       return;
     }
 
-    // Otherwise → tackle nearest opponent with ball
-    for (const p of this.awayTeam.players) {
-      if (!p.hasBall) continue;
+    // Cooldown guard
+    if (this._tackleCooldown) return;
 
-      if (!isInTackleRange(
-        this.controlledPlayer.sprite.x, this.controlledPlayer.sprite.y,
-        p.sprite.x, p.sprite.y,
-        PLAYER.TACKLE_RANGE
-      )) continue;
+    // Find nearest opponent carrying the ball
+    const carrier = this.awayTeam.players.find(p => p.hasBall);
+    if (!carrier) return;
 
-      const carrierSprinting = Math.abs(p.sprite.body?.velocity.x ?? 0) > 100 ||
-                               Math.abs(p.sprite.body?.velocity.y ?? 0) > 100;
+    const inRange = isInTackleRange(
+      this.controlledPlayer.sprite.x, this.controlledPlayer.sprite.y,
+      carrier.sprite.x, carrier.sprite.y,
+      PLAYER.TACKLE_RANGE,
+    );
+    if (!inRange) return;
 
-      const result = resolveTackle(
-        this.controlledPlayer.stats,
-        p.stats,
-        carrierSprinting,
-        false, // Away team doesn't fend (AI will handle this later)
-      );
+    // Set cooldown (cleared after recovery)
+    this._tackleCooldown = true;
+    this.time.delayedCall(1200, () => { this._tackleCooldown = false; });
 
-      EventBus.emit('tackle', {
-        tacklerId: this.controlledPlayer.id,
-        carrierId: p.id,
-        outcome: result.outcome,
-      });
+    const carrierSprinting =
+      Math.abs(carrier.sprite.body?.velocity.x ?? 0) > 100 ||
+      Math.abs(carrier.sprite.body?.velocity.y ?? 0) > 100;
 
-      switch (result.outcome) {
-        case 'dominant':
-          // Ball dislodged — loose ball
-          p.getsTackled();
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
+    const result = resolveTackle(
+      this.controlledPlayer.stats,
+      carrier.stats,
+      carrierSprinting,
+      false,
+    );
+
+    // Emit for audio only (no game logic in the handler)
+    EventBus.emit('tackle', { tacklerId: this.controlledPlayer.id, carrierId: carrier.id, outcome: result.outcome });
+
+    // Visual: brief flash on tackler (not a positional tween)
+    this.controlledPlayer.sprite.setTint(0xffffff);
+    this.time.delayedCall(100, () => {
+      this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+    });
+
+    switch (result.outcome) {
+      case 'dominant':
+        // Hard hit — ball dislodged
+        carrier.getsTackled();
+        carrier.releaseBall();
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
+        // Brief ruck still forms
+        if (this.phaseManager.canTransition('TACKLE')) {
+          this.phaseManager.transition('TACKLE');
+          this.time.delayedCall(400, () => {
+            if (this.phaseManager.canTransition('RUCK')) {
+              this.phaseManager.transition('RUCK');
+              this.ruckSystem.startRuck(carrier.sprite.x, carrier.sprite.y, carrier.teamSide);
+            }
           });
-          this.ball.dropLoose(p.sprite.x, p.sprite.y);
-          break;
-
-        case 'normal': {
-          // Check if carrier stays on feet (potential maul)
-          const carrierStrong = p.stats.strength > this.controlledPlayer.stats.strength * 0.9;
-          
-          if (carrierStrong) {
-            // Carrier stays on feet — check for supporter to form maul
-            this.controlledPlayer.isGrounded = true;
-            this.time.delayedCall(result.tacklerRecoveryMs, () => {
-              this.controlledPlayer.isGrounded = false;
-            });
-
-            // Find nearest teammate within support distance
-            const supporter = this.awayTeam.players.find(teammate => {
-              if (teammate === p || teammate.isGrounded || teammate.isInRuck) return false;
-              const dist = Math.hypot(
-                teammate.sprite.x - p.sprite.x,
-                teammate.sprite.y - p.sprite.y
-              );
-              return dist < 80;
-            });
-
-            if (supporter && this.phaseManager.canTransition('TACKLE')) {
-              this.phaseManager.transition('TACKLE');
-              this.time.delayedCall(500, () => {
-                if (this.phaseManager.canTransition('MAUL')) {
-                  this.phaseManager.transition('MAUL');
-                  const attacksRight = p.teamSide === 'home';
-                  this.maulSystem.startMaul(p, this.controlledPlayer, supporter, attacksRight);
-                }
-              });
-            } else {
-              // No supporter — falls to ground, ruck
-              p.getsTackled();
-              this.ball.dropLoose(p.sprite.x, p.sprite.y);
-              if (this.phaseManager.canTransition('TACKLE')) {
-                this.phaseManager.transition('TACKLE');
-                this.time.delayedCall(500, () => {
-                  if (this.phaseManager.canTransition('RUCK')) {
-                    this.phaseManager.transition('RUCK');
-                    this.ruckSystem.startRuck(p.sprite.x, p.sprite.y);
-                  }
-                });
-              }
-            }
-          } else {
-            // Normal tackle — ruck forms
-            p.getsTackled();
-            this.controlledPlayer.isGrounded = true;
-            this.time.delayedCall(result.tacklerRecoveryMs, () => {
-              this.controlledPlayer.isGrounded = false;
-            });
-            this.ball.dropLoose(p.sprite.x, p.sprite.y);
-
-            if (this.phaseManager.canTransition('TACKLE')) {
-              this.phaseManager.transition('TACKLE');
-              this.time.delayedCall(500, () => {
-                if (this.phaseManager.canTransition('RUCK')) {
-                  this.phaseManager.transition('RUCK');
-                  this.ruckSystem.startRuck(p.sprite.x, p.sprite.y);
-                }
-              });
-            }
-          }
-          break;
         }
+        break;
 
-        case 'missed':
-          // Tackler stumbles, carrier keeps going
-          this.controlledPlayer.sprite.setVelocity(0, 0);
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
-          });
-          break;
+      case 'normal': {
+        // Standard tackle — carrier goes to ground, ruck forms
+        carrier.getsTackled();
+        carrier.releaseBall();
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
 
-        case 'fendOff':
-          // Carrier fended off the tackler
-          this.controlledPlayer.sprite.setVelocity(0, 0);
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
+        if (this.phaseManager.canTransition('TACKLE')) {
+          this.phaseManager.transition('TACKLE');
+          this.time.delayedCall(400, () => {
+            if (this.phaseManager.canTransition('RUCK')) {
+              this.phaseManager.transition('RUCK');
+              this.ruckSystem.startRuck(carrier.sprite.x, carrier.sprite.y, carrier.teamSide);
+            }
           });
-          break;
+        }
+        break;
       }
-      break; // Only tackle one player
+
+      case 'heldUp': {
+        // Carrier wrestled but stays on feet — look for maul
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+
+        const supporter = this.awayTeam.players.find(p => {
+          if (p === carrier || p.isGrounded || p.isInRuck) return false;
+          return Math.hypot(p.sprite.x - carrier.sprite.x, p.sprite.y - carrier.sprite.y) < 80;
+        });
+
+        if (supporter && this.phaseManager.canTransition('MAUL')) {
+          this.phaseManager.transition('MAUL');
+          const attacksRight = carrier.teamSide === 'home';
+          this.maulSystem.startMaul(carrier, this.controlledPlayer, supporter, attacksRight);
+        } else {
+          // No support — treat as normal tackle
+          carrier.getsTackled();
+          carrier.releaseBall();
+          this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
+          if (this.phaseManager.canTransition('TACKLE')) {
+            this.phaseManager.transition('TACKLE');
+            this.time.delayedCall(400, () => {
+              if (this.phaseManager.canTransition('RUCK')) {
+                this.phaseManager.transition('RUCK');
+                this.ruckSystem.startRuck(carrier.sprite.x, carrier.sprite.y, carrier.teamSide);
+              }
+            });
+          }
+        }
+        break;
+      }
+
+      case 'missed':
+        // Tackler stumbles, carrier runs free
+        this.controlledPlayer.sprite.setVelocity(0, 0);
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        break;
+
+      case 'fendOff':
+        // Carrier pushed tackler away
+        this.controlledPlayer.sprite.setVelocity(0, 0);
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        break;
     }
   }
 

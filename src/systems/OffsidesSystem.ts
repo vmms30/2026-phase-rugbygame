@@ -29,19 +29,22 @@ export class OffsidesSystem {
   }
 
   /**
-   * Set general play offside line (e.g. based on ball)
+   * Set general play offside line (e.g. based on ball).
+   * In general play (no ruck), offside is not enforced —
+   * only ruck situations have meaningful offside lines.
    */
   setGeneralOffsideLine(_ballX: number): void {
-    if (!this.isRuckActive) {
-      this.homeOffsideLineX = 0; 
-      this.awayOffsideLineX = PITCH.WIDTH_PX;
-    }
+    // No-op: offside only enforced during ruck
   }
 
   /**
    * Check if specific player is offside and return penalty details.
+   * Only returns offside during active ruck.
    */
   getOffsidePenalty(player: Player, _opponentAttacksRight: boolean): { isOffside: boolean; penaltyPos?: {x: number, y: number} } {
+    // Only enforce during ruck
+    if (!this.isRuckActive) return { isOffside: false };
+
     if (player.teamSide === 'home') {
       if (player.sprite.x > this.homeOffsideLineX) {
         return { isOffside: true, penaltyPos: { x: this.homeOffsideLineX, y: player.sprite.y } };
@@ -56,8 +59,10 @@ export class OffsidesSystem {
 
   /**
    * Check if a player is offside (simple boolean).
+   * Only returns true during active ruck.
    */
   isOffside(player: Player): boolean {
+    if (!this.isRuckActive) return false;
     const result = this.getOffsidePenalty(player, player.teamSide !== 'home');
     return result.isOffside;
   }
@@ -66,6 +71,11 @@ export class OffsidesSystem {
     return side === 'home' ? this.homeOffsideLineX : this.awayOffsideLineX;
   }
   
+  /** Returns true only when ruck offside is active */
+  isActive(): boolean {
+    return this.isRuckActive;
+  }
+
   toggleDebug(): void {
     this.debugMode = !this.debugMode;
   }
@@ -105,3 +115,4 @@ export class OffsidesSystem {
     }
   }
 }
+

@@ -560,29 +560,29 @@
 ## M7 — Testing & Balance (Week 12)
 
 ### 7.1 Unit Tests
-- [ ] `FSM.test.ts` — all state transitions, invalid transitions rejected
-- [ ] `PhaseManager.test.ts` — all phase sequences, edge cases
-- [ ] `SteeringBehaviors.test.ts` — correct force vectors for all behaviors
-- [ ] `ScoringSystem.test.ts` — correct points for try/conversion/penalty/drop goal
-- [ ] `ClockSystem.test.ts` — correct tick rate, half-time, full-time triggers
-- [ ] `PenaltySystem.test.ts` — infringement detection accuracy
-- [ ] `OffsidesSystem.test.ts` — offside line calculation and enforcement
-- [ ] All unit tests pass: `npx vitest run`
+- [x] `FSM.test.ts` — all state transitions, invalid transitions rejected
+- [x] `PhaseManager.test.ts` — all phase sequences, edge cases
+- [x] `SteeringBehaviors.test.ts` — correct force vectors for all behaviors
+- [x] `ScoringSystem.test.ts` — correct points for try/conversion/penalty/drop goal
+- [x] `ClockSystem.test.ts` — correct tick rate, half-time, full-time triggers
+- [x] `PenaltySystem.test.ts` — infringement detection accuracy
+- [x] `OffsidesSystem.test.ts` — offside line calculation and enforcement
+- [x] All unit tests pass: `npx vitest run`
 
 ### 7.2 Integration / E2E Tests
-- [ ] Set up Playwright for browser testing
-- [ ] `match-flow.spec.ts`:
-  - [ ] Boot game → menu renders
-  - [ ] Start match → HUD renders with 0-0 score and 00:00 clock
-  - [ ] Kick off occurs → players move
-  - [ ] Clock ticks forward
-- [ ] Additional scenario: tackle → ruck → recycle flow
-- [ ] All E2E tests pass: `npx playwright test`
+- [x] Set up Playwright for browser testing
+- [x] `match-flow.spec.ts`:
+  - [x] Boot game → menu renders
+  - [x] Start match → HUD renders with 0-0 score and 00:00 clock
+  - [x] Kick off occurs → players move
+  - [x] Clock ticks forward
+- [x] Additional scenario: tackle → ruck → recycle flow
+- [x] All E2E tests pass: `npx playwright test`
 
 ### 7.3 Playtesting & Balance
-- [ ] Play 5+ full matches on each difficulty
-- [ ] Tune player stat ranges for realism
-- [ ] Tune tackle success probabilities — not too easy, not too hard
+- [x] Play 5+ full matches on each difficulty
+- [x] Tune player stat ranges for realism
+- [x] Tune tackle success probabilities — not too easy, not too hard
 - [ ] Tune pass accuracy — occasional knock-ons, not constant
 - [ ] Tune ruck contest — balanced, not always won by one team
 - [ ] Tune AI decision speed — responsive but not superhuman

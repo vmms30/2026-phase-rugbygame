@@ -62,6 +62,7 @@ export class PlayerAI {
           ctx.ballCarrierPos.x + offsetX,
           ctx.ballCarrierPos.y + offsetY,
           0.7,
+          ctx.player.team?.players || []
         );
       },
     });
@@ -70,7 +71,7 @@ export class PlayerAI {
       name: 'CARRY_BALL',
       update: (ctx) => {
         const targetX = ctx.teamSide === 'home' ? PITCH.TRY_LINE_RIGHT : PITCH.TRY_LINE_LEFT;
-        ctx.player.moveToward(targetX, ctx.player.sprite.y, 0.85);
+        ctx.player.moveToward(targetX, ctx.player.sprite.y, 0.85, ctx.player.team?.players || []);
       },
     });
 
@@ -96,13 +97,13 @@ export class PlayerAI {
       name: 'CHASE_BALL',
       update: (ctx) => {
         // High aggression chase
-        ctx.player.moveToward(ctx.ball.sprite.x, ctx.ball.sprite.y, 1.0);
+        ctx.player.moveToward(ctx.ball.sprite.x, ctx.ball.sprite.y, 1.0, ctx.player.team?.players || []);
       },
     });
 
     this.fsm.addState({
       name: 'TACKLE',
-      enter: (ctx) => {
+      enter: (_ctx) => {
         // ... tackle logic ...
       },
       update: (ctx) => {
@@ -132,7 +133,7 @@ export class PlayerAI {
     this.fsm.addState({
       name: 'RETURN_POSITION',
       update: (ctx) => {
-        ctx.player.moveToward(ctx.formationX, ctx.formationY, 0.5);
+        ctx.player.moveToward(ctx.formationX, ctx.formationY, 0.5, ctx.player.team?.players || []);
       },
     });
 

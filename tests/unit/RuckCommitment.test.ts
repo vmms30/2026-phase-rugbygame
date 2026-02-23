@@ -7,7 +7,10 @@ vi.mock('phaser', () => {
       Physics: { 
         Arcade: { 
           Image: class {
-            constructor(scene, x, y, texture) { this.x = x; this.y = y; this.body = { velocity: { x: 0, y: 0 }, speed: 0 }; }
+            constructor(scene: any, x: number, y: number, texture: string) { this.x = x; this.y = y; this.body = { velocity: { x: 0, y: 0 }, speed: 0 }; }
+            x: number;
+            y: number;
+            body: any;
             setCircle() {}
             setDepth() {}
             setCollideWorldBounds() {}
@@ -15,10 +18,12 @@ vi.mock('phaser', () => {
             setTint() {}
             setData() {}
             getData() { return undefined; }
-            setPosition(x, y) { this.x = x; this.y = y; }
-            setVelocity(x, y) { this.body.velocity.x = x; this.body.velocity.y = y; }
+            setPosition(x: number, y: number) { this.x = x; this.y = y; }
+            setVelocity(x: number, y: number) { this.body.velocity.x = x; this.body.velocity.y = y; }
+            setVisible() {}
+            setActive() {}
           }, 
-          Body: class {} 
+          Body: class { enable = true; } 
         } 
       },
       GameObjects: { 
@@ -40,8 +45,8 @@ vi.mock('phaser', () => {
         };
         physics = {
             add: {
-                image: () => new (vi.mocked(Phaser.Physics.Arcade.Image))(),
-                sprite: () => new (vi.mocked(Phaser.Physics.Arcade.Image))()
+                image: (x: number, y: number, texture: string) => new ((Phaser.Physics.Arcade as any).Image)(this, x, y, texture),
+                sprite: (x: number, y: number, texture: string) => new ((Phaser.Physics.Arcade as any).Image)(this, x, y, texture)
             }
         };
         cameras = {
@@ -99,6 +104,7 @@ describe('PlayerAI Ruck Commitment', () => {
 
   it('should join ruck if within range and aggression is adequate', () => {
     // Distance 100px. Aggression 3 -> Range 120px. Should join.
+    player.setPosition(100, 200);
     ai.update(16, ball, 100, 100, false, undefined);
     
     // Check transition
@@ -118,7 +124,7 @@ describe('PlayerAI Ruck Commitment', () => {
 
   it('should join from further away with high aggression', () => {
     // Mock team with high aggression
-    player.team = { ruckAggression: 5 }; 
+    team.ruckAggression = 5; 
     player.setPosition(20, 200); // Distance 180px.
     
     ai.update(16, ball, 20, 200, false, undefined);
@@ -136,8 +142,8 @@ describe('PlayerAI Ruck Commitment', () => {
   });
   
   it('should not join if player is a back (e.g. Winger)', () => {
-    // Get a winger (Pos 11 or 14)
-    const winger = team.getPlayerByPosition(11);
+    // Get a winger (Pos 14)
+    const winger = team.getPlayerByPosition(14);
     winger.setPosition(150, 200); // Close enough
     
     const wingerAI = new PlayerAI(winger, ball);

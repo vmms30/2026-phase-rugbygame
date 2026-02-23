@@ -39,23 +39,23 @@ export const PLAYER = {
   /** Base walk speed */
   WALK_SPEED: 0.75,
   /** Base run speed */
-  RUN_SPEED: 1.25,
+  RUN_SPEED: 1.35,
   /** Sprint multiplier */
-  SPRINT_MULTIPLIER: 1.5,
+  SPRINT_MULTIPLIER: 1.6,
   /** Stamina drain per frame while sprinting */
-  STAMINA_DRAIN_RATE: 0.15,
+  STAMINA_DRAIN_RATE: 0.12,
   /** Stamina recovery per frame while not sprinting */
-  STAMINA_RECOVERY_RATE: 0.08,
+  STAMINA_RECOVERY_RATE: 0.05,
   /** Stamina threshold — sprint unavailable below this */
   STAMINA_MIN_SPRINT: 20,
   /** Speed penalty when stamina below threshold */
   LOW_STAMINA_SPEED_PENALTY: 0.85,
-  /** Tackle range (px) */
-  TACKLE_RANGE: 40,
+  /** Tackle range (px) — generous so input tackles reliably land */
+  TACKLE_RANGE: 120,
   /** Grounded time after tackle (ms) */
   GROUNDED_DURATION: 1000,
-  /** Size of the player circle body */
-  BODY_RADIUS: 8,
+  /** Size of the player circle body (matches 20x20 texture radius) */
+  BODY_RADIUS: 10,
   /** Player sprite scale */
   SPRITE_SCALE: 1,
 } as const;
@@ -67,11 +67,11 @@ export const BALL = {
   /** Kick speed multiplier */
   KICK_SPEED_MULTIPLIER: 8,
   /** Ground friction deceleration  */
-  FRICTION: 0.98,
+  FRICTION: 0.97,
   /** Bounce deviation for grubber kicks (degrees) */
-  GRUBBER_DEVIATION: 15,
+  GRUBBER_DEVIATION: 20,
   /** Power bar charge duration (ms) */
-  KICK_CHARGE_DURATION: 1500,
+  KICK_CHARGE_DURATION: 1200,
   /** Ball body radius */
   BODY_RADIUS: 4,
 } as const;
@@ -84,7 +84,7 @@ export const RUCK = {
   TICK_INTERVAL: 300,
   /** Dominance threshold to release ball */
   RELEASE_THRESHOLD: 1.3,
-  /** Timeout before awarding scrum (ms) */
+  /** Timeout before awarding scrum (ms) — ball released within 10s */
   TIMEOUT: 10000,
 } as const;
 
@@ -216,11 +216,11 @@ export const DIFFICULTY: Record<'EASY' | 'MEDIUM' | 'HARD', DifficultyConfig> = 
     kickAccuracyModifier: 1.0,
   },
   HARD: {
-    aiReactionDelay: 50,
-    tackleBonus: 10,
-    passAccuracyBonus: 15,
+    aiReactionDelay: 80, // slightly more human
+    tackleBonus: 5,      // not too impossible
+    passAccuracyBonus: 10,
     playVariety: 12,
-    ruckStrengthModifier: 1.15,
-    kickAccuracyModifier: 1.2,
+    ruckStrengthModifier: 1.10,
+    kickAccuracyModifier: 1.15,
   },
 } as const;

@@ -61,6 +61,9 @@ export class Player {
   isGrounded: boolean = false;
   isInRuck: boolean = false;
 
+  /** Stored team tint so it can be restored after tackle */
+  readonly teamTint: number;
+
   /** Position to return to when not actively involved */
   formationX: number = 0;
   formationY: number = 0;
@@ -79,6 +82,7 @@ export class Player {
     this.id = `player_${playerIdCounter++}`;
     this.position = position;
     this.teamSide = teamSide;
+    this.teamTint = tint;
     this.formationX = x;
     this.formationY = y;
 
@@ -92,7 +96,9 @@ export class Player {
     // Create sprite
     this.sprite = scene.physics.add.image(x, y, 'player');
     this.sprite.setTint(tint);
-    this.sprite.setCircle(PLAYER.BODY_RADIUS);
+    // Center the circular physics body on the sprite
+    // Texture is 20x20; radius=10 means offset=(0,0) centers correctly
+    this.sprite.setCircle(PLAYER.BODY_RADIUS, 0, 0);
     this.sprite.setCollideWorldBounds(true);
     this.sprite.setDepth(1);
     this.sprite.setData('playerRef', this);
@@ -136,6 +142,7 @@ export class Player {
       this.stamina = Math.min(100, this.stamina + PLAYER.STAMINA_RECOVERY_RATE);
     }
 
+    // Optional separation block if neighbors are tracked, but typically moveInDirection is user-controlled so we don't force separation.
     this.sprite.setVelocity(vx * speed, vy * speed);
 
     // Update facing direction
@@ -146,10 +153,12 @@ export class Player {
 
   /**
    * Move toward a target position (used by AI).
+   * Optional neighbors array provides separation.
    */
-  moveToward(targetX: number, targetY: number, speedFactor: number = 1): void {
-    const dx = targetX - this.sprite.x;
-    const dy = targetY - this.sprite.y;
+  moveToward(targetX: number, targetY: number, speedFactor: number = 1, neighbors: Player[] = []): void {
+    const pos = { x: this.sprite.x, y: this.sprite.y };
+    const dx = targetX - pos.x;
+    const dy = targetY - pos.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < 5) {
@@ -158,10 +167,30 @@ export class Player {
     }
 
     const baseSpeed = (this.stats.speed / 100) * PLAYER.RUN_SPEED * 100 * speedFactor;
-    const nx = dx / dist;
-    const ny = dy / dist;
-    this.sprite.setVelocity(nx * baseSpeed, ny * baseSpeed);
-    this.facing = this.computeDirection(nx, ny);
+    
+    let nx = dx / dist;
+    let ny = dy / dist;
+    
+    // Apply soft separation if neighbors provided
+    if (neighbors.length > 0) {
+      const neighborPos = neighbors
+        .filter(n => n !== this && !n.isGrounded && !n.isInRuck)
+        .map(n => ({ x: n.sprite.x, y: n.sprite.y }));
+        
+      const sep = separation(pos, neighborPos, 40); // 40px desired separation
+      
+      // Blend 80% seek / 20% separation
+      const totalForce = blendForces([
+        { force: { x: nx * baseSpeed, y: ny * baseSpeed }, weight: 0.8 },
+        { force: sep, weight: 0.2 }
+      ], baseSpeed);
+      
+      this.sprite.setVelocity(totalForce.x, totalForce.y);
+      this.facing = this.computeDirection(totalForce.x, totalForce.y);
+    } else {
+      this.sprite.setVelocity(nx * baseSpeed, ny * baseSpeed);
+      this.facing = this.computeDirection(nx, ny);
+    }
   }
 
   /**
@@ -171,13 +200,11 @@ export class Player {
     this.isGrounded = true;
     this.hasBall = false;
     this.sprite.setVelocity(0, 0);
-    this.sprite.setTintFill(0xff4444);
+    this.sprite.setTintFill(0xff4444); // Red flash
 
     this.scene.time.delayedCall(PLAYER.GROUNDED_DURATION, () => {
       this.isGrounded = false;
-      this.sprite.clearTint();
-      // Re-apply team tint
-      // (will be properly handled when we refactor with team color storage)
+      this.sprite.setTint(this.teamTint); // Restore team colour
     });
   }
 
@@ -191,7 +218,7 @@ export class Player {
 
     this.scene.time.delayedCall(durationMs, () => {
       this.isGrounded = false;
-      this.sprite.clearTint();
+      this.sprite.setTint(this.teamTint); // Restore team colour
     });
   }
 
@@ -256,17 +283,15 @@ export class Player {
     const arriveForce = arrive(pos, targetPos, maxSpeed, 50);
 
     // 2. Separation from neighbors (prevent bunching)
-    // Filter neighbors to only those close by
     const neighborPos = neighbors
       .filter(n => n !== this && !n.isGrounded && !n.isInRuck)
       .map(n => ({ x: n.sprite.x, y: n.sprite.y }));
     
-    const separationForce = separation(pos, neighborPos, 40);
+    const separationForce = separation(pos, neighborPos, 60);
 
-    // 3. Blend forces
-    // Defaults: Arrive 1.0, Separation 1.5
+    // 3. Blend forces — higher separation weight keeps circles from overlapping
     const wArrive = weights?.arrive ?? 1.0;
-    const wSep = weights?.separation ?? 1.5;
+    const wSep = weights?.separation ?? 3.0;
 
     const totalForce = blendForces([
       { force: arriveForce, weight: wArrive },

@@ -70,7 +70,7 @@ export class MaulSystem {
     attacker.isInRuck = true;
     tackler.isInRuck = true;
 
-    EventBus.emit('ruckFormed', { x: this.state.x, y: this.state.y });
+    EventBus.emit('ruckFormed', { x: this.state.x, y: this.state.y, attackingTeam: carrier.teamSide });
   }
 
   /** Commit a player to the maul */
@@ -167,8 +167,12 @@ export class MaulSystem {
 
   /** Ball emerges from back of maul — attacking team retains */
   releaseBall(): void {
+    // Read state BEFORE endMaul() clears it
+    const x = this.state.x;
+    const y = this.state.y;
+    const attackingTeam = this.state.carrier?.teamSide ?? 'home';
     this.endMaul();
-    EventBus.emit('ruckBallAvailable', { x: this.state.x, y: this.state.y });
+    EventBus.emit('ruckBallAvailable', { x, y, attackingTeam });
   }
 
   reset(): void {
