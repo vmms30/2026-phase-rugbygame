@@ -34,6 +34,7 @@ export class PhaseManager {
   private currentPhase: GamePhase;
   private phaseCount: number = 0;
   private phaseStartTime: number = 0;
+  private transitionQueue: { target: GamePhase, priority: number }[] = [];
 
   constructor(initialPhase: GamePhase = 'KICK_OFF') {
     this.currentPhase = initialPhase;
@@ -56,7 +57,36 @@ export class PhaseManager {
   }
 
   /**
-   * Attempt to transition to a new phase.
+   * Queue a transition, handling simultaneous requests by priority.
+   * Priority (higher wins): 
+   * 3: High (Half-time/Full-time)
+   * 2: Medium (Scores, Penalties) 
+   * 1: Normal (Ruck, Tackle, Open Play)
+   */
+  queueTransition(to: GamePhase, priority: number = 1): void {
+     this.transitionQueue.push({ target: to, priority });
+  }
+
+  /**
+   * Process the queued transitions (call this at end of main update loop)
+   */
+  update(): void {
+     if (this.transitionQueue.length === 0) return;
+
+     // Sort by priority (descending)
+     this.transitionQueue.sort((a, b) => b.priority - a.priority);
+
+     // Take the highest priority transition
+     const next = this.transitionQueue[0];
+     
+     // Clear the queue for the next frame
+     this.transitionQueue = [];
+
+     this.transition(next.target);
+  }
+
+  /**
+   * Attempt to transition to a new phase immediately.
    * @returns true if transition was valid and executed
    */
   transition(to: GamePhase): boolean {

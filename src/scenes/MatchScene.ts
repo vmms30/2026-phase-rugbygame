@@ -29,6 +29,7 @@ import { PowerBar, KickType, KICK_CONFIGS, calculateKickDistance, calculateKickD
 import { selectPassType, PASS_CONFIGS } from '../components/Passing';
 import { catchProbability } from '../components/Stats';
 import { AudioManager } from '../systems/AudioManager';
+import { ObjectPool } from '../utils/ObjectPool';
 
 export class MatchScene extends Phaser.Scene {
   // ── Teams & Ball ───────────────────────────────────────
@@ -95,11 +96,20 @@ export class MatchScene extends Phaser.Scene {
   private territoryHomeSamples = 0;
   private territoryTotalSamples = 0;
 
+  // ── Stuck Ball tracking ────────────────────────────────
+  private stuckBallTimer = 0;
+  private lastBallPos = { x: 0, y: 0 };
+
   // ── Minimap viewport rect ──────────────────────────────
   private minimapViewRect!: Phaser.GameObjects.Graphics;
 
   // ── Audio ──────────────────────────────────────────────
   private audioManager!: AudioManager;
+
+  // ── Object Pools ───────────────────────────────────────
+  private labelPool!: ObjectPool<Phaser.GameObjects.Text>;
+  private particlePool!: ObjectPool<Phaser.GameObjects.Particles.ParticleEmitter>;
+  private particleTextureCreated = false;
 
   constructor() {
     super({ key: 'MatchScene' });
@@ -212,6 +222,52 @@ export class MatchScene extends Phaser.Scene {
     this.audioManager = new AudioManager(this);
     this.audioManager.startCrowdAmbience();
 
+    // ── Object Pools ───────────────────────────────────────
+    
+    // Create base particle texture before pooling emitters
+    if (!this.particleTextureCreated) {
+        const gfx = this.make.graphics({x: 0, y: 0});
+        gfx.fillStyle(0xffffff);
+        gfx.fillRect(0, 0, 8, 8);
+        gfx.generateTexture('particle', 8, 8);
+        this.particleTextureCreated = true;
+    }
+
+    this.labelPool = new ObjectPool<Phaser.GameObjects.Text>(
+      () => {
+        const txt = this.add.text(0, 0, '', {
+          fontSize: '20px', color: '#ffff00', fontStyle: 'bold'
+        }).setOrigin(0.5).setVisible(false).setDepth(200);
+        return txt;
+      },
+      (txt) => {
+        txt.setVisible(false);
+        txt.setAlpha(1);
+        this.tweens.killTweensOf(txt);
+      },
+      10 // Initial size
+    );
+
+    this.particlePool = new ObjectPool<Phaser.GameObjects.Particles.ParticleEmitter>(
+      () => {
+        return this.add.particles(0, 0, 'particle', {
+          speed: { min: 100, max: 300 },
+          angle: { min: 180, max: 360 }, // Upwards
+          scale: { start: 1, end: 0 },
+          lifespan: 2000,
+          gravityY: 200,
+          quantity: 50,
+          tint: [0xffffff],
+          emitting: false
+        });
+      },
+      (emitter) => {
+        emitter.stop();
+        emitter.setPosition(0, 0);
+      },
+      2 // Max tries at once is realistically 1
+    );
+
     // ── Input ───────────────────────────────────────────
     this.setupInput();
 
@@ -252,6 +308,12 @@ export class MatchScene extends Phaser.Scene {
 
     // ── Update ball ─────────────────────────────────────
     this.ball.update(delta);
+
+    // ── Check for stuck ball ────────────────────────────
+    this.checkStuckBall(delta);
+
+    // ── Check for out of bounds ─────────────────────────
+    this.checkOutOfBounds();
 
     // ── Update ruck system ──────────────────────────────
     this.ruckSystem.update(delta);
@@ -361,6 +423,84 @@ export class MatchScene extends Phaser.Scene {
       this.drawAIDebug();
     } else {
       this.debugGraphics?.clear();
+    }
+
+    // ── Process Queued Transitions ──────────────────────
+    this.phaseManager.update();
+  }
+
+  private checkStuckBall(delta: number): void {
+    if (this.ball.state !== 'loose') {
+      this.stuckBallTimer = 0;
+      return;
+    }
+
+    const { x, y } = this.ball.sprite;
+    const dx = x - this.lastBallPos.x;
+    const dy = y - this.lastBallPos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // If ball moved very little, increment timer
+    if (dist < 5) {
+      this.stuckBallTimer += delta;
+      
+      if (this.stuckBallTimer > 5000) { // 5 seconds
+        // Award scrum 
+        if (this.phaseManager.canTransition('SCRUM')) {
+          this.phaseManager.queueTransition('SCRUM', 1);
+          this.time.delayedCall(500, () => {
+              EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'SCRUM' });
+          });
+        }
+        this.stuckBallTimer = 0; // Reset
+      }
+    } else {
+      this.stuckBallTimer = 0;
+    }
+
+    this.lastBallPos.x = x;
+    this.lastBallPos.y = y;
+  }
+
+  private checkOutOfBounds(): void {
+    const { x, y } = this.ball.sprite;
+    const isLoose = this.ball.state === 'loose';
+    const isKicked = this.ball.state === 'kicked';
+    const isCarried = this.ball.state === 'carried';
+
+    // Sidelines (Touch)
+    if (y <= 0 || y >= PITCH.HEIGHT_PX) {
+      if (isCarried) {
+        // Carried into touch -> Lineout
+        if (this.phaseManager.canTransition('LINEOUT')) {
+           this.phaseManager.queueTransition('LINEOUT', 1);
+           EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'LINEOUT' });
+        }
+      } else if (isKicked) {
+        // Kicked out on full
+        if (this.phaseManager.canTransition('SCRUM')) {
+           this.phaseManager.queueTransition('SCRUM', 1);
+           EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'SCRUM' });
+        }
+      } else if (isLoose) {
+        // Bounced out -> Lineout
+        if (this.phaseManager.canTransition('LINEOUT')) {
+           this.phaseManager.queueTransition('LINEOUT', 1);
+           EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'LINEOUT' });
+        }
+      }
+    }
+
+    // Dead-ball lines (In-Goal)
+    if (x <= 0 || x >= PITCH.WIDTH_PX) {
+      if (isKicked || isLoose) {
+        // Ball went dead
+        // Simple logic: if attacking team kicked it dead -> 22m drop out
+        // If defending team kicked/carried it dead -> 5m scrum
+        const deadSide = x <= 0 ? 'home' : 'away';
+        // For now, always give a 22 dropout to the defending team of that zone
+        this.performDropout22(deadSide);
+      }
     }
   }
 
@@ -1224,17 +1364,20 @@ export class MatchScene extends Phaser.Scene {
         }
       });
     } else {
-       // Visual feedback: No receiver
-       const label = this.add.text(carrier.sprite.x, carrier.sprite.y - 30, '?', {
-         fontSize: '20px', color: '#ffff00', fontStyle: 'bold'
-       }).setOrigin(0.5);
+       // Visual feedback: No receiver (using pool)
+       const label = this.labelPool.get();
+       label.setPosition(carrier.sprite.x, carrier.sprite.y - 30);
+       label.setText('?');
+       label.setVisible(true);
        
        this.tweens.add({
          targets: label,
          y: label.y - 30,
          alpha: 0,
          duration: 800,
-         onComplete: () => label.destroy()
+         onComplete: () => {
+           this.labelPool.release(label);
+         }
        });
     }
   }
@@ -1525,7 +1668,7 @@ export class MatchScene extends Phaser.Scene {
     for (const p of this.homeTeam.players) {
       if (p === this.controlledPlayer || p.isGrounded || p.isInRuck) continue;
       const d = distance({ x: p.sprite.x, y: p.sprite.y }, ruckPos);
-      if (d < 80 && ruckState.attackers.length < 4) {
+      if (d < 80 && ruckState.attackers.length < 3) {
         p.isInRuck = true;
         p.moveToward(ruckState.x, ruckState.y, 0.5);
         this.ruckSystem.commitPlayer(p, true);
@@ -1680,28 +1823,14 @@ export class MatchScene extends Phaser.Scene {
   }
 
   private spawnConfetti(x: number, y: number, color: number): void {
-      if (!this.textures.exists('particle')) {
-          const gfx = this.make.graphics({x: 0, y: 0});
-          gfx.fillStyle(0xffffff);
-          gfx.fillRect(0, 0, 8, 8);
-          gfx.generateTexture('particle', 8, 8);
-      }
-
-      const emitter = this.add.particles(x, y, 'particle', {
-          speed: { min: 100, max: 300 },
-          angle: { min: 180, max: 360 }, // Upwards
-          scale: { start: 1, end: 0 },
-          lifespan: 2000,
-          gravityY: 200,
-          quantity: 50,
-          tint: [color, 0xffffff, 0xffff00],
-          emitting: false
-      });
+      const emitter = this.particlePool.get();
+      emitter.setPosition(x, y);
+      emitter.setParticleTint(color);
       
       emitter.explode(50, x, y);
       
       this.time.delayedCall(2000, () => {
-          emitter.destroy();
+          this.particlePool.release(emitter);
       });
   }
 

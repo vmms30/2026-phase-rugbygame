@@ -116,13 +116,15 @@ export function attemptOffload(
   const baseChance = (effectiveHandling / 100) * 0.8; 
   
   if (Math.random() < baseChance) {
+    // Check for knock-on based on remaining probability
+    if (Math.random() > effectiveHandling / 100 + 0.1) {
+      return { type: 'FAILED_KNOCKON' };
+    }
     return { type: 'SUCCESS', target: bestSupport };
   } else {
     // Failed attempt!
     // High handling reduces knock-on chance on fail
-    // If handling is 70, fail chance is high. Knock-on chance should be existing.
-    // e.g. 20% chance of knock-on if failed?
-    if (Math.random() < 0.3) {
+    if (Math.random() < 0.4 - (effectiveHandling / 200)) {
        return { type: 'FAILED_KNOCKON' };
     }
   }

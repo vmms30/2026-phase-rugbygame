@@ -337,6 +337,17 @@ export class PlayerAI {
        
        if (ctx.ball.state === 'ruck' || ctx.ball.speed < 10 /* effectively stopped */) {
           const dist = distToBall(ctx);
+          
+          // Check how many teammates are already near the ruck/ball
+          let nearbyTeammatesBinded = 0;
+          if (ctx.player.team) {
+            for (const p of ctx.player.team.players) {
+              if (p.isInRuck) nearbyTeammatesBinded++;
+            }
+          }
+          // Hard cap at 3 players per team in a ruck
+          if (nearbyTeammatesBinded >= 3) return false;
+
           const aggression = ctx.player.team?.ruckAggression || 3;
           // Higher aggression = join from further away
           const joinRange = aggression * 40; // 3->120, 5->200

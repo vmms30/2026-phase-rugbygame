@@ -111,17 +111,18 @@ export class RuckSystem {
   /** Calculate one contest tick */
   private contestTick(): void {
     const atkPower = this.state.attackers.reduce(
-      (sum, p) => sum + (p.stats.strength + p.stats.workRate) / 200, 0
+      (sum, p) => sum + (p.stats.strength * 1.5 + p.stats.workRate) / 250, 0
     );
     const defPower = this.state.defenders.reduce(
-      (sum, p) => sum + (p.stats.strength + p.stats.workRate) / 200, 0
+      (sum, p) => sum + (p.stats.strength * 1.5 + p.stats.workRate) / 250, 0
     ) * this.difficulty.ruckStrengthModifier;
 
     // Ensure at least some base power — minimum so dominance always climbs
     const atkTotal = Math.max(atkPower, 0.4);  // Guaranteed minimum even with 0 committed
-    const defTotal = Math.max(defPower, 0.15);
+    const defTotal = Math.max(defPower, 0.2);  // Increased baseline defense slightly
 
-    this.state.dominance += (atkTotal - defTotal) * 0.5;
+    // Dominance shifts faster to reward having more players committed
+    this.state.dominance += (atkTotal - defTotal) * 0.7;
 
     // Ball becomes available when attack dominance exceeds threshold
     if (this.state.dominance > RUCK.RELEASE_THRESHOLD && !this.state.ballAvailable) {
