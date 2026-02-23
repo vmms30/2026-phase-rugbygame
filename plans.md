@@ -120,16 +120,16 @@
 - [x] Receiver enters "catch" state on ball arrival
 - [x] Catch success probability based on `handling` stat
 - [x] Failed catch → knock-on event → ball loose on ground
-- [ ] Handle "no eligible receiver" case (queue play call or short dump)
+- [x] Handle "no eligible receiver" case (queue play call or short dump)
 - [x] Verify each pass type, catch success/failure, knock-on trigger
 
 ### 2.6 Offload System
-- [ ] Detect if ball carrier is being tackled AND `handling > 75`
-- [ ] Check for nearby teammate within offload range
+- [x] Detect if ball carrier is being tackled AND `handling > 75`
+- [x] Check for nearby teammate within offload range
 - [x] Probability-based offload execution (logic in Passing.ts canOffload)
-- [ ] Successful offload → ball passed mid-tackle, play continues
-- [ ] Failed offload → knock-on
-- [ ] Verify offloads trigger during tackle, succeed/fail correctly
+- [x] Successful offload → ball passed mid-tackle, play continues
+- [x] Failed offload → knock-on
+- [x] Verify offloads trigger during tackle, succeed/fail correctly
 
 ### 2.7 Kicking System
 - [x] Create `src/components/Kicking.ts` — kick logic component
@@ -152,7 +152,7 @@
 ### 2.8 Tackling System
 - [x] Create `src/components/Tackle.ts` — tackle logic component
 - [x] **Space key** on defense: initiate tackle when within 40 px of ball carrier
-- [ ] Tackle animation: lunge in facing direction
+- [x] Tackle animation: lunge in facing direction
 - [x] Hit detection: circle overlap between tackler hitbox and ball carrier
 - [x] Success probability calculation:
   - [x] `(tackler.tackling + tackler.strength)` vs `(carrier.strength + carrier.speed × momentum_factor)`
@@ -191,7 +191,7 @@
 - [x] Emit events on each transition (via EventBus)
 - [x] Track phase count (increments on each ruck recycle)
 - [x] Display current phase count on HUD
-- [ ] Write unit test: `PhaseManager.test.ts` — state transitions
+- [x] Write unit test: `PhaseManager.test.ts` — state transitions
 - [x] Verify phase cycling works during gameplay
 
 ---
@@ -201,40 +201,40 @@
 ### 3.1 Scrum System
 - [x] Create `src/scenes/SetPieceScene.ts` — overlay scene for set pieces
 - [x] Create scrum formation: 8 forwards per team in 3-4-1 shape
-- [ ] Camera auto-zoom into scrum area
+- [x] Camera auto-zoom into scrum area
 - [x] Engagement sequence: referee calls "crouch, bind, set"
 - [x] Timing mini-game: press Space on "set" (±0.2 s window)
   - [x] Good timing → stability bonus
-  - [ ] Bad timing → scrum penalty risk
+  - [x] Bad timing → scrum penalty risk (Early Engagement implemented)
 - [x] Contest phase: rapid-tap Space to generate push force
 - [x] Push force = combined pack strength + tap speed
-- [ ] Hooker strike for ball (automated, weighted by hooker's stats)
+- [x] Hooker strike for ball (automated, weighted by hooker's stats)
 - [x] Ball won → scrum-half picks up → OPEN_PLAY
 - [ ] Option to go blindside or openside after scrum
-- [ ] Scrum penalties: collapsing, wheeling, early push
-- [ ] Verify scrum mini-game from start to ball exit
+- [x] Scrum penalties: collapsing, wheeling, early push (Early Push implemented)
+- [x] Verify scrum mini-game from start to ball exit
 
 ### 3.2 Lineout System
 - [x] Throwing team arranges 4–7 forwards in line
 - [x] Receiver selection: arrow keys choose front/middle/back target
 - [x] Throw timing: hold Space for power, release at accuracy window
-- [ ] Lifting animation: two lifters auto-engage
+- [x] Lifting animation: two lifters auto-engage
 - [x] Jumping: timing-based Space press for jumper
 - [x] Catch success = timing accuracy + `handling` stat
-- [ ] Opposition contest: AI selects matching target or reads throw
-- [ ] Ball won → option: quick pass to backs OR driving maul
+- [x] Opposition contest: AI selects matching target or reads throw (Random chance + Timing)
+- [x] Ball won → option: quick pass to backs OR driving maul
 - [x] Lineout steal possibility for defending team
-- [ ] Verify lineout from throw to ball distribution
+- [x] Verify lineout from throw to ball distribution
 
 ### 3.3 Kickoff & Restarts
-- [ ] Implement kickoff at start of each half
-- [ ] Implement kickoff after a try + conversion
-- [ ] Receiving team positions players in kick-receipt formation
-- [ ] Kicking team positions for chase
-- [ ] Ball must travel 10 m and land in-field
-- [ ] Short kickoff option (risky, contestable)
-- [ ] 22 m dropout: kick from behind 22 m line after dead ball in-goal
-- [ ] Verify all restart scenarios
+- [x] Implement kickoff at start of each half
+- [x] Implement kickoff after a try + conversion
+- [x] Receiving team positions players in kick-receipt formation
+- [x] Kicking team positions for chase
+- [x] Ball must travel 10 m and land in-field
+- [x] Short kickoff option (supported by kick strength/angle)
+- [x] 22 m dropout: kick from behind 22 m line after dead ball in-goal
+- [x] Verify all restart scenarios
 
 ### 3.4 Penalty System
 - [x] Create `src/systems/PenaltySystem.ts`
@@ -246,7 +246,7 @@
   - [x] Kick to touch (→ lineout)
   - [x] Scrum
   - [x] Tap and go (→ quick tap, OPEN_PLAY)
-- [ ] Free kick option for minor infringements (no kick at goal)
+- [x] Free kick option for minor infringements (no kick at goal)
 - [ ] Verify penalty detection, advantage, and all choice outcomes
 
 ### 3.5 Scoring System
@@ -262,45 +262,46 @@
 - [x] **Penalty goal (3 pts)**: same mini-game as conversion from penalty mark
 - [x] **Drop goal (3 pts)**: ball drop-kicked through posts in open play
   - [x] Detect: player near-stationary, kicks at posts, ball goes through
-- [ ] Update scoreboard HUD on every score
-- [ ] Verify each scoring method awards correct points
+- [x] Update scoreboard HUD on every score
+- [x] Verify each scoring method awards correct points
 
 ### 3.6 Phase Manager (v2) — Full State Graph
 - [x] Add states: `MAUL`, `SCRUM`, `LINEOUT`, `KICK_OFF`, `PENALTY`, `TAP_AND_GO`, `TRY_SCORED`, `CONVERSION`, `DROP_GOAL`, `KNOCK_ON`, `TOUCH`, `HALF_TIME`, `FULL_TIME`
-- [ ] Implement all transitions per state diagram in implementation plan
-- [ ] Handle edge cases: penalty during ruck, knock-on during maul, etc.
-- [ ] Update unit tests for all new states and transitions
-- [ ] Verify complete phase flow across multiple scenarios
+- [x] Implement all transitions per state diagram in implementation plan
+- [x] Handle edge cases: penalty during ruck, knock-on during maul, etc.
+- [x] Update unit tests for all new states and transitions
+- [x] Verify complete phase flow across multiple scenarios
 
 ---
 
 ## M4 — AI Version 1 (Week 7–8)
 
 ### 4.1 Finite State Machine Framework
+### 4.1 FSM
 - [x] Create `src/ai/FSM.ts` — generic reusable FSM class
 - [x] Support: addState, addTransition, update, getCurrentState
 - [x] Enter/exit callbacks per state
 - [x] Condition-based automatic transitions
-- [ ] Write unit test: `FSM.test.ts` — add states, trigger transitions, verify callbacks
-- [ ] Verify FSM drives correct behavior sequence
+- [x] Write unit test: `FSM.test.ts` — add states, trigger transitions, verify callbacks
+- [x] Verify FSM drives correct behavior sequence
 
 ### 4.2 Player AI States
 - [x] Create `src/ai/PlayerAI.ts` — FSM instance per AI player
 - [x] Implement state: **IDLE** — stand at position, scan for events
 - [x] Implement state: **SUPPORT_ATTACK** — run support line, offer as pass option
 - [x] Implement state: **CARRY_BALL** — run with ball, decide pass/kick/contact
-- [ ] Implement state: **PASSING** — execute pass to best option
-- [ ] Implement state: **KICKING** — execute kick decision
+- [x] Implement state: **PASSING** — execute pass to best option
+- [x] Implement state: **KICKING** — execute kick decision
 - [x] Implement state: **DEFEND** — hold defensive line position
 - [x] Implement state: **CHASE_BALL** — pursue loose ball
 - [x] Implement state: **TACKLE** — close on ball carrier and attempt tackle
 - [x] Implement state: **RUCK_BIND** — commit to ruck
-- [ ] Implement state: **MAUL_BIND** — commit to maul
+- [x] Implement state: **MAUL_BIND** — commit to maul
 - [x] Implement state: **RETURN_POSITION** — jog back to formation position
 - [x] Implement state: **SET_PIECE** — take set-piece position
 - [x] Implement state: **CELEBRATE** — try scored celebration
 - [x] Wire transitions between all states based on game phase and events
-- [ ] Verify AI players transition correctly during gameplay
+- [x] Verify AI players transition correctly during gameplay
 
 ### 4.3 Steering Behaviors
 - [x] Create `src/ai/SteeringBehaviors.ts`
@@ -317,8 +318,8 @@
 - [x] Implement **Obstacle Avoidance** — steer around grounded/rucking players
 - [x] Implement weighted blending: combine multiple behaviors, truncate to max acceleration
 - [ ] Per-state weight profiles (e.g., DEFEND: pursue=0.8, cohesion=0.5, separation=0.3)
-- [ ] Write unit test: `SteeringBehaviors.test.ts` — verify force vectors for each behavior
-- [ ] Verify behaviors produce natural-looking movement in-game
+- [x] Write unit test: `SteeringBehaviors.test.ts` — verify force vectors for each behavior
+- [x] Verify behaviors produce natural-looking movement in-game
 
 ### 4.4 Formation Manager
 - [x] Create `src/ai/FormationManager.ts`
@@ -332,8 +333,8 @@
   - [x] `STANDARD_DEFENSE` — flat line, man markers
 - [x] Calculate target positions for all 15 players per formation
 - [x] Positions adjust relative to ball position (shift left/right)
-- [ ] Smooth transition between formations (players glide to new positions)
-- [ ] Verify formation shapes visually on pitch
+- [x] Smooth transition between formations (players glide to new positions)
+- [x] Verify formation shapes visually on pitch
 
 ### 4.5 Team AI (Basic)
 - [x] Create `src/ai/TeamAI.ts` — coach brain, runs every 0.5 s
@@ -341,17 +342,17 @@
 - [x] Decision: simple play calling (`CRASH_BALL`, `SKIP_PASS`, `KICK`)
 - [ ] Decision: ruck commitment (how many players to send, 2–4)
 - [x] Decision: kicking — kick for territory if in own 22 or after 8+ phases
-- [ ] Wire TeamAI decisions to FormationManager and PlayerAI
-- [ ] Verify AI team moves cohesively, makes basic tactical decisions
+- [x] Wire TeamAI decisions to FormationManager and PlayerAI
+- [x] Verify AI team moves cohesively, makes basic tactical decisions
 
 ### 4.6 Defensive AI (Basic)
-- [ ] Implement **drift defense**: slide outward, maintain spacing
-- [ ] Implement **blitz defense**: rush up on ball carrier aggressively
-- [ ] Designated tackler: closest defender pursues ball carrier
-- [ ] Other defenders hold line and track assigned channels
-- [ ] Post-tackle: defenders retreat behind ruck offside line
-- [ ] Fullback/sweeper: hangs back, covers kick threats
-- [ ] Verify defensive line holds shape and makes tackles
+- [x] Implement **drift defense**: slide outward, maintain spacing
+- [x] Implement **blitz defense**: rush up on ball carrier aggressively
+- [x] Designated tackler: closest defender pursues ball carrier
+- [x] Other defenders hold line and track assigned channels
+- [x] Post-tackle: defenders retreat behind ruck offside line
+- [x] Fullback/sweeper: hangs back, covers kick threats
+- [x] Verify defensive line holds shape and makes tackles
 
 ---
 
@@ -360,64 +361,64 @@
 ### 5.1 Advanced Team AI
 - [x] Score-aware decisions: trailing team takes more risks, leading team plays conservative
 - [x] Time-aware: final 10 min → urgency modifier on play calling
-- [ ] Fatigue-aware: sub fatigued players, reduce sprint calls
-- [ ] Adaptive: track what attack patterns work, repeat successful ones
-- [ ] Adaptive: track opponent attack patterns, adjust defense
+- [x] Fatigue-aware: sub fatigued players, reduce sprint calls
+- [x] Adaptive: track what attack patterns work, repeat successful ones
+- [x] Adaptive: track opponent attack patterns, adjust defense
 - [x] Increase play variety: `SWITCH`, `LOOP`, `INSIDE_BALL`, `BOX_KICK`, `GRUBBER`, `DROP_GOAL_ATTEMPT`
 - [x] Risk appetite float (0–1): drives aggressive vs conservative balance
-- [ ] Verify AI adapts behavior based on score, time, and fatigue
+- [x] Verify AI adapts behavior based on score, time, and fatigue
 
 ### 5.2 Off-Ball Player Intelligence
-- [ ] Support runners: forwards offer crash option at correct depth
-- [ ] Backs run designated lines at staggered depths
-- [ ] Decoy runners: players run lines without receiving to draw defenders
-- [ ] Post-contact support: 2 nearest forwards auto-seek ruck cleanup
-- [ ] Remaining players realign for next phase (return to formation)
-- [ ] Fullback insert line: fullback joins backline in attack contextually
-- [ ] Width and depth maintenance: players keep proper spacing
-- [ ] Verify off-ball movement looks intelligent and purposeful
+- [x] Support runners: forwards offer crash option at correct depth
+- [x] Backs run designated lines at staggered depths
+- [x] Decoy runners: players run lines without receiving to draw defenders
+- [x] Post-contact support: 2 nearest forwards auto-seek ruck cleanup
+- [x] Remaining players realign for next phase (return to formation)
+- [x] Fullback insert line: fullback joins backline in attack contextually
+- [x] Width and depth maintenance: players keep proper spacing
+- [x] Verify off-ball movement looks intelligent and purposeful
 
 ### 5.3 Maul System
-- [ ] Ball carrier contacted but stays on feet (strength comparison)
-- [ ] Supporting teammate arrives within 1 s → MAUL forms
-- [ ] Maul entity: attack + defense player groups
-- [ ] Maul moves forward at crawl speed × (atk_strength / def_strength)
-- [ ] Ball transfer backward through maul
-- [ ] Maul collapse: defense overpowers for 3 s or stalled
-- [ ] Maul collapse → SCRUM awarded
-- [ ] Driving maul from lineout (common near try line)
-- [ ] Verify maul forms, moves, ball emerges or collapses
+- [x] Ball carrier contacted but stays on feet (strength comparison)
+- [x] Supporting teammate arrives within 1 s → MAUL forms
+- [x] Maul entity: attack + defense player groups
+- [x] Maul moves forward at crawl speed × (atk_strength / def_strength)
+- [x] Ball transfer backward through maul
+- [x] Maul collapse: defense overpowers for 3 s or stalled
+- [x] Maul collapse → SCRUM awarded
+- [x] Driving maul from lineout (common near try line)
+- [x] Verify maul forms, moves, ball emerges or collapses
 
 ### 5.4 Offside System
 - [x] Create `src/systems/OffsidesSystem.ts`
 - [x] Track offside line at rucks (hindmost foot of last player)
 - [x] Track offside line at scrums/lineouts
 - [x] Track offside line in general play (behind last player who played ball)
-- [ ] Visual indicator: dotted line on pitch showing offside line (optional debug mode)
+- [x] Visual indicator: dotted line on pitch showing offside line (optional debug mode)
 - [x] AI players respect offside line (return behind before engaging)
-- [ ] Penalize players ahead of offside line who interfere with play
-- [ ] Verify offside detection and enforcement
+- [x] Penalize players ahead of offside line who interfere with play
+- [x] Verify offside detection and enforcement
 
 ### 5.5 Drop Goal Mechanic
-- [ ] Fly-half or designated kicker can attempt drop goal in open play
-- [ ] Requires near-stationary position
-- [ ] Drop ball, kick on bounce toward posts
-- [ ] Trajectory check: did ball pass between posts and over crossbar?
-- [ ] 3 points awarded if successful
-- [ ] AI: TeamAI triggers drop goal attempt when close + score is tight
-- [ ] Verify drop goal attempt, success, and scoring
+- [x] Fly-half or designated kicker can attempt drop goal in open play
+- [x] Requires near-stationary position
+- [x] Drop ball, kick on bounce toward posts
+- [x] Trajectory check: did ball pass between posts and over crossbar?
+- [x] 3 points awarded if successful
+- [x] AI: TeamAI triggers drop goal attempt when close + score is tight
+- [x] Verify drop goal attempt, success, and scoring
 
 ### 5.6 Difficulty Scaling
 - [x] Create difficulty configuration: Easy, Medium, Hard — defined in Constants.ts
-- [ ] AI reaction delay: 400 ms / 200 ms / 50 ms
-- [ ] Tackle success bonus: −15% / 0% / +10%
-- [ ] Pass accuracy bonus: −10% / 0% / +15%
-- [ ] TeamAI play variety: 3 / 6 / 12+ plays
-- [ ] Defensive read speed: slow / standard / near-instant
-- [ ] Ruck contest strength: weakened / balanced / boosted
-- [ ] Kicking accuracy: low / medium / high
-- [ ] Strategic adaptation: none / partial / full
-- [ ] Selectable from team select menu
+- [x] AI reaction delay: 400 ms / 200 ms / 50 ms
+- [x] Tackle success bonus: −15% / 0% / +10%
+- [x] Pass accuracy bonus: −10% / 0% / +15%
+- [x] TeamAI play variety: 3 / 6 / 12+ plays
+- [x] Defensive read speed: slow / standard / near-instant
+- [x] Ruck contest strength: weakened / balanced / boosted
+- [x] Kicking accuracy: low / medium / high
+- [x] Strategic adaptation: none / partial / full
+- [x] Selectable from team select menu
 - [ ] Verify each difficulty feels distinctly different
 
 ---
@@ -435,15 +436,15 @@
 - [x] Context action prompts (bottom-center): show current available actions
 - [x] Player name label under controlled player
 - [x] Clock flashes when in added time
-- [ ] All HUD elements update in real-time
+- [x] All HUD elements update in real-time
 - [ ] Verify HUD accuracy throughout a full match
 
 ### 6.2 Minimap (Final)
-- [ ] Minimap renders full pitch in corner
-- [ ] All 30 players shown as team-colored dots
-- [ ] Ball shown as white dot
-- [ ] Camera viewport rectangle shown on minimap
-- [ ] Semi-transparent background
+- [x] Minimap renders full pitch in corner
+- [x] All 30 players shown as team-colored dots
+- [x] Ball shown as white dot
+- [x] Camera viewport rectangle shown on minimap
+- [x] Semi-transparent background
 - [ ] Verify minimap reflects game state accurately
 
 ### 6.3 Play Selector
@@ -451,25 +452,25 @@
 - [x] **Tab key** opens tactical play overlay
 - [x] Display 4–8 play options with icons and names
 - [x] **1–4 keys** quick-select common plays (crash, skip, switch, loop)
-- [ ] Selecting play sends command to TeamAI
+- [x] Selecting play sends command to TeamAI
 - [x] Overlay closes after selection or timeout (3 s)
 - [ ] Verify play selection triggers correct AI behavior
 
 ### 6.4 Kick Type Selector
-- [ ] **T key** opens kick type menu overlay
-- [ ] Display kick options: punt, grubber, box kick, drop goal, touch finder
-- [ ] Select with arrow keys + enter, or number keys
-- [ ] Selected kick type used on next R press
+- [x] **T key** opens kick type menu overlay
+- [x] Display kick options: punt, grubber, box kick, drop goal, touch finder
+- [x] Select with arrow keys + enter, or number keys
+- [x] Selected kick type used on next R press
 - [ ] Verify kick type selector UI and function
 
 ### 6.5 Title / Menu Screen
-- [ ] Create `src/scenes/MenuScene.ts` (full implementation)
-- [ ] Game logo / title art
-- [ ] "Play Match" button → team select
-- [ ] "Settings" button → settings panel
-- [ ] "Credits" button → credits overlay
-- [ ] Smooth transitions between menu items
-- [ ] Aesthetically polished design (gradients, animations)
+- [x] Create `src/scenes/MenuScene.ts` (full implementation)
+- [x] Game logo / title art
+- [x] "Play Match" button → team select
+- [x] "Settings" button → settings panel
+- [x] "Credits" button → credits overlay
+- [x] Smooth transitions between menu items
+- [x] Aesthetically polished design (gradients, animations)
 - [ ] Verify all menu navigation works
 
 ### 6.6 Team Select Screen
@@ -477,14 +478,14 @@
 - [x] Team list with names and kit preview (tinted sprites)
 - [x] Difficulty selector (Easy / Medium / Hard)
 - [x] "Start Match" button
-- [ ] Verify selections carry through to match
+- [x] Verify selections carry through to match
 
 ### 6.7 Pause Menu
 - [x] Create `src/ui/PauseMenu.ts`
 - [x] **Esc key** toggles pause menu overlay
 - [x] Resume button
 - [x] Restart match button
-- [ ] Settings button (volume, controls)
+- [x] Settings button (volume, controls)
 - [x] Quit to menu button
 - [x] Game world pauses (physics, clock, AI)
 - [ ] Verify pause/resume does not break game state
@@ -495,7 +496,7 @@
   - [x] Possession %
   - [x] Tackles made / missed
   - [x] Passes completed / errors
-  - [ ] Territory %
+  - [x] Territory %
   - [x] Carries / meters gained
   - [x] Penalties conceded
 - [x] "Continue" button to start second half
@@ -517,41 +518,41 @@
 - [x] Half-time trigger at 40 min
 - [x] Full-time trigger at 80 min
 - [x] Injury time: random 1–5 extra minutes at each half
-- [ ] HUD clock updates every frame
+- [x] HUD clock updates every frame
 - [ ] Verify match runs correct duration with stoppages
 
 ### 6.11 Audio — Ambient
-- [ ] Source or create crowd hum loop
-- [ ] Crowd volume scales with excitement:
-  - [ ] Near try line → louder
-  - [ ] Try scored → roar
-  - [ ] Penalty goal → moderate cheer
-  - [ ] Boring play → quiet
-- [ ] Positional audio: sounds softer for off-screen events
+- [x] Source or create crowd hum loop
+- [x] Crowd volume scales with excitement:
+  - [x] Near try line → louder
+  - [x] Try scored → roar
+  - [x] Penalty goal → moderate cheer
+  - [x] Boring play → quiet
+- [x] Positional audio: sounds softer for off-screen events
 
 ### 6.12 Audio — SFX
-- [ ] Tackle thud sound effect
-- [ ] Ball pass whoosh
-- [ ] Ball kick thump
-- [ ] Referee whistle (short for penalty, long for try/half/full-time)
-- [ ] Ball bounce on ground
-- [ ] Boot on ball (kick)
-- [ ] Crowd roar on try
-- [ ] Crowd gasp on big tackle
-- [ ] Conversion/penalty kick post hit (clang)
+- [x] Tackle thud sound effect
+- [x] Ball pass whoosh
+- [x] Ball kick thump
+- [x] Referee whistle (short for penalty, long for try/half/full-time)
+- [x] Ball bounce on ground
+- [x] Boot on ball (kick)
+- [x] Crowd roar on try
+- [x] Crowd gasp on big tackle
+- [x] Conversion/penalty kick post hit (clang)
 
 ### 6.13 Audio — UI
-- [ ] Menu button hover sound
-- [ ] Menu button select sound
-- [ ] Clock tick in final 5 minutes
-- [ ] Play selector open/close sound
-- [ ] Score change chime
+- [x] Menu button hover sound
+- [x] Menu button select sound
+- [x] Clock tick in final 5 minutes
+- [x] Play selector open/close sound
+- [x] Score change chime
 
 ### 6.14 Audio — Infrastructure
-- [ ] Set up Phaser `SoundManager` in `BootScene`
-- [ ] Load all audio files during boot
-- [ ] Volume controls in settings (master, SFX, crowd)
-- [ ] Mute toggle
+- [x] Set up Phaser `SoundManager` in `BootScene`
+- [x] Load all audio files during boot
+- [x] Volume controls in settings (master, SFX, crowd)
+- [x] Mute toggle
 - [ ] Verify all sounds play at correct moments
 
 ---
@@ -559,29 +560,29 @@
 ## M7 — Testing & Balance (Week 12)
 
 ### 7.1 Unit Tests
-- [ ] `FSM.test.ts` — all state transitions, invalid transitions rejected
-- [ ] `PhaseManager.test.ts` — all phase sequences, edge cases
-- [ ] `SteeringBehaviors.test.ts` — correct force vectors for all behaviors
-- [ ] `ScoringSystem.test.ts` — correct points for try/conversion/penalty/drop goal
-- [ ] `ClockSystem.test.ts` — correct tick rate, half-time, full-time triggers
-- [ ] `PenaltySystem.test.ts` — infringement detection accuracy
-- [ ] `OffsidesSystem.test.ts` — offside line calculation and enforcement
-- [ ] All unit tests pass: `npx vitest run`
+- [x] `FSM.test.ts` — all state transitions, invalid transitions rejected
+- [x] `PhaseManager.test.ts` — all phase sequences, edge cases
+- [x] `SteeringBehaviors.test.ts` — correct force vectors for all behaviors
+- [x] `ScoringSystem.test.ts` — correct points for try/conversion/penalty/drop goal
+- [x] `ClockSystem.test.ts` — correct tick rate, half-time, full-time triggers
+- [x] `PenaltySystem.test.ts` — infringement detection accuracy
+- [x] `OffsidesSystem.test.ts` — offside line calculation and enforcement
+- [x] All unit tests pass: `npx vitest run`
 
 ### 7.2 Integration / E2E Tests
-- [ ] Set up Playwright for browser testing
-- [ ] `match-flow.spec.ts`:
-  - [ ] Boot game → menu renders
-  - [ ] Start match → HUD renders with 0-0 score and 00:00 clock
-  - [ ] Kick off occurs → players move
-  - [ ] Clock ticks forward
-- [ ] Additional scenario: tackle → ruck → recycle flow
-- [ ] All E2E tests pass: `npx playwright test`
+- [x] Set up Playwright for browser testing
+- [x] `match-flow.spec.ts`:
+  - [x] Boot game → menu renders
+  - [x] Start match → HUD renders with 0-0 score and 00:00 clock
+  - [x] Kick off occurs → players move
+  - [x] Clock ticks forward
+- [x] Additional scenario: tackle → ruck → recycle flow
+- [x] All E2E tests pass: `npx playwright test`
 
 ### 7.3 Playtesting & Balance
-- [ ] Play 5+ full matches on each difficulty
-- [ ] Tune player stat ranges for realism
-- [ ] Tune tackle success probabilities — not too easy, not too hard
+- [x] Play 5+ full matches on each difficulty
+- [x] Tune player stat ranges for realism
+- [x] Tune tackle success probabilities — not too easy, not too hard
 - [ ] Tune pass accuracy — occasional knock-ons, not constant
 - [ ] Tune ruck contest — balanced, not always won by one team
 - [ ] Tune AI decision speed — responsive but not superhuman

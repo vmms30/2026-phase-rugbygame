@@ -9,6 +9,8 @@
 import Phaser from 'phaser';
 import type { Player } from '../entities/Player';
 import { RUCK } from '../utils/Constants';
+import type { DifficultyConfig } from '../utils/Constants';
+import { DIFFICULTY } from '../utils/Constants';
 import { EventBus } from '../utils/EventBus';
 
 export interface RuckState {
@@ -17,6 +19,8 @@ export interface RuckState {
   /** Centre position of the ruck */
   x: number;
   y: number;
+  /** Which team is attacking (was carrying the ball) */
+  attackingTeam: 'home' | 'away';
   /** Players committed by each team */
   attackers: Player[];
   defenders: Player[];
@@ -32,6 +36,7 @@ export class RuckSystem {
   private state: RuckState = {
     active: false,
     x: 0, y: 0,
+    attackingTeam: 'home',
     attackers: [], defenders: [],
     dominance: 0,
     startTime: 0,
@@ -40,16 +45,18 @@ export class RuckSystem {
   private tickTimer: number = 0;
   private scene: Phaser.Scene;
   private ruckZone: Phaser.GameObjects.Arc | null = null;
+  private difficulty: DifficultyConfig = DIFFICULTY.MEDIUM;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
   }
 
   /** Form a ruck at the given position */
-  startRuck(x: number, y: number): void {
+  startRuck(x: number, y: number, attackingTeam: 'home' | 'away' = 'home'): void {
     this.state = {
       active: true,
       x, y,
+      attackingTeam,
       attackers: [],
       defenders: [],
       dominance: 0,
@@ -63,7 +70,7 @@ export class RuckSystem {
     this.ruckZone.setStrokeStyle(2, 0xffa500, 0.5);
     this.ruckZone.setDepth(1);
 
-    EventBus.emit('ruckFormed', { x, y });
+    EventBus.emit('ruckFormed', { x, y, attackingTeam });
   }
 
   /** Commit a player to the ruck */
@@ -104,17 +111,18 @@ export class RuckSystem {
   /** Calculate one contest tick */
   private contestTick(): void {
     const atkPower = this.state.attackers.reduce(
-      (sum, p) => sum + (p.stats.strength + p.stats.workRate) / 200, 0
+      (sum, p) => sum + (p.stats.strength * 1.5 + p.stats.workRate) / 250, 0
     );
     const defPower = this.state.defenders.reduce(
-      (sum, p) => sum + (p.stats.strength + p.stats.workRate) / 200, 0
-    );
+      (sum, p) => sum + (p.stats.strength * 1.5 + p.stats.workRate) / 250, 0
+    ) * this.difficulty.ruckStrengthModifier;
 
-    // Ensure at least some base power
-    const atkTotal = Math.max(atkPower, 0.3);
-    const defTotal = Math.max(defPower, 0.2);
+    // Ensure at least some base power — minimum so dominance always climbs
+    const atkTotal = Math.max(atkPower, 0.4);  // Guaranteed minimum even with 0 committed
+    const defTotal = Math.max(defPower, 0.2);  // Increased baseline defense slightly
 
-    this.state.dominance += (atkTotal - defTotal) * 0.5;
+    // Dominance shifts faster to reward having more players committed
+    this.state.dominance += (atkTotal - defTotal) * 0.7;
 
     // Ball becomes available when attack dominance exceeds threshold
     if (this.state.dominance > RUCK.RELEASE_THRESHOLD && !this.state.ballAvailable) {
@@ -122,20 +130,28 @@ export class RuckSystem {
       EventBus.emit('ruckBallAvailable', {
         x: this.state.x,
         y: this.state.y,
+        attackingTeam: this.state.attackingTeam,
       });
     }
 
     // Turnover: defense completely dominates
     if (this.state.dominance < -RUCK.RELEASE_THRESHOLD) {
+      const losingTeam: 'home' | 'away' = this.state.attackingTeam === 'home' ? 'away' : 'home';
       EventBus.emit('ruckTurnover', {
         x: this.state.x,
         y: this.state.y,
+        attackingTeam: losingTeam,  // The new attacker is the former defender
       });
       this.endRuck();
     }
 
     // Infringement check (random, weighted by awareness)
     this.checkInfringements();
+  }
+
+  /** Set difficulty config for ruck strength scaling */
+  setDifficulty(config: DifficultyConfig): void {
+    this.difficulty = config;
   }
 
   /** Random infringement check during ruck */
@@ -163,7 +179,7 @@ export class RuckSystem {
       x: this.state.x,
       y: this.state.y,
     });
-    this.endRuck();
+    this.endRuck(); // Ensure players are released from ruck bounds
   }
 
   /** Clean up ruck state */
@@ -198,5 +214,10 @@ export class RuckSystem {
   /** Is the ball available at the ruck? */
   isBallAvailable(): boolean {
     return this.state.ballAvailable;
+  }
+
+  /** Which team is attacking at this ruck? */
+  getAttackingTeam(): 'home' | 'away' {
+    return this.state.attackingTeam;
   }
 }

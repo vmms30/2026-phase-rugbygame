@@ -6,25 +6,37 @@
  *
  * M2 integration: PhaseManager, RuckSystem, Tackle, Kicking (PowerBar),
  * Passing types, and improved player switching.
+ * M3 integration: ClockSystem, ScoringSystem, kickoff, half-time, full-time.
  */
 import Phaser from 'phaser';
 import { Player } from '../entities/Player';
 import { Ball } from '../entities/Ball';
 import { Team } from '../entities/Team';
-import { PITCH, CAMERA, TEAM_COLORS, PLAYER, Position } from '../utils/Constants';
+import { TeamAI } from '../ai/TeamAI';
+import { PITCH, CAMERA, TEAM_COLORS, PLAYER, Position, DIFFICULTY } from '../utils/Constants';
+import type { DifficultyConfig } from '../utils/Constants';
 import { EventBus } from '../utils/EventBus';
 import { distance } from '../utils/MathHelpers';
 import { PhaseManager } from '../systems/PhaseManager';
 import { RuckSystem } from '../systems/RuckSystem';
+import { ClockSystem } from '../systems/ClockSystem';
+import { ScoringSystem } from '../systems/ScoringSystem';
+import { MaulSystem } from '../systems/MaulSystem';
+import { OffsidesSystem } from '../systems/OffsidesSystem';
+import { KickoffSystem } from '../systems/KickoffSystem';
 import { resolveTackle, isInTackleRange } from '../components/Tackle';
 import { PowerBar, KickType, KICK_CONFIGS, calculateKickDistance, calculateKickDeviation } from '../components/Kicking';
 import { selectPassType, PASS_CONFIGS } from '../components/Passing';
 import { catchProbability } from '../components/Stats';
+import { AudioManager } from '../systems/AudioManager';
+import { ObjectPool } from '../utils/ObjectPool';
 
 export class MatchScene extends Phaser.Scene {
   // ── Teams & Ball ───────────────────────────────────────
   homeTeam!: Team;
   awayTeam!: Team;
+  homeTeamAI!: TeamAI;
+  awayTeamAI!: TeamAI;
   ball!: Ball;
 
   // ── Currently controlled player ────────────────────────
@@ -36,12 +48,17 @@ export class MatchScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
+  // Debug graphics
+  // private debugGraphics!: Phaser.GameObjects.Graphics; // Added in method above, but good to declare here if needed? 
+  // Actually, I added it as a property in the previous block. 
+  // Let's add the key setup in setupInput.
 
   // ── Minimap ────────────────────────────────────────────
   private minimapCamera!: Phaser.Cameras.Scene2D.Camera;
 
   // ── HUD elements ───────────────────────────────────────
   private scoreText!: Phaser.GameObjects.Text;
+  private clockText!: Phaser.GameObjects.Text;
   private phaseText!: Phaser.GameObjects.Text;
   private staminaBar!: Phaser.GameObjects.Rectangle;
   private staminaBg!: Phaser.GameObjects.Rectangle;
@@ -52,26 +69,57 @@ export class MatchScene extends Phaser.Scene {
   private kickTypeText!: Phaser.GameObjects.Text;
   private actionPrompt!: Phaser.GameObjects.Text;
 
-  // ── M2 Systems ─────────────────────────────────────────
+  // ── M2/M3/M5 Systems ────────────────────────────────────
   private phaseManager!: PhaseManager;
   private ruckSystem!: RuckSystem;
+  private clockSystem!: ClockSystem;
+  private scoringSystem!: ScoringSystem;
+  private maulSystem!: MaulSystem;
+  private offsidesSystem!: OffsidesSystem;
+  private kickoffSystem!: KickoffSystem;
+  // @ts-ignore — used by M5 AI difficulty scaling
+  private difficulty: DifficultyConfig = DIFFICULTY.MEDIUM;
   private powerBar!: PowerBar;
   private selectedKickType: KickType = KickType.PUNT;
   private kickSelectorOpen = false;
   private kickSelectorItems: Phaser.GameObjects.Text[] = [];
 
   // ── Game state ─────────────────────────────────────────
-  private homeScore = 0;
-  private awayScore = 0;
   private autoSwitchTimer = 0;
-  // @ts-ignore — used by fend mechanic, consumed in M3
+  // @ts-ignore — used by fend mechanic
   private _fendingActive = false;
 
   // ── HUD helpers ────────────────────────────────────────
   private hudElements: Phaser.GameObjects.GameObject[] = [];
 
+  // ── Territory tracking ─────────────────────────────────
+  private territoryHomeSamples = 0;
+  private territoryTotalSamples = 0;
+
+  // ── Stuck Ball tracking ────────────────────────────────
+  private stuckBallTimer = 0;
+  private lastBallPos = { x: 0, y: 0 };
+
+  // ── Minimap viewport rect ──────────────────────────────
+  private minimapViewRect!: Phaser.GameObjects.Graphics;
+
+  // ── Audio ──────────────────────────────────────────────
+  private audioManager!: AudioManager;
+
+  // ── Object Pools ───────────────────────────────────────
+  private labelPool!: ObjectPool<Phaser.GameObjects.Text>;
+  private particlePool!: ObjectPool<Phaser.GameObjects.Particles.ParticleEmitter>;
+  private particleTextureCreated = false;
+
   constructor() {
     super({ key: 'MatchScene' });
+  }
+
+  /** Read scene data from TeamSelectScene */
+  init(data: { homeTeam?: { name: string; color: number }; awayTeam?: { name: string; color: number }; difficulty?: 'EASY' | 'MEDIUM' | 'HARD' }): void {
+    if (data.difficulty && DIFFICULTY[data.difficulty]) {
+      this.difficulty = DIFFICULTY[data.difficulty];
+    }
   }
 
   create(): void {
@@ -79,8 +127,25 @@ export class MatchScene extends Phaser.Scene {
     this.drawPitch();
 
     // ── Create teams ────────────────────────────────────
-    this.homeTeam = new Team(this, 'home', TEAM_COLORS.HOME);
-    this.awayTeam = new Team(this, 'away', TEAM_COLORS.AWAY);
+    this.homeTeam = new Team(this, 'home', {
+      rating: 75, strength: 70, speed: 72, kicking: 68, handling: 70,
+      color: TEAM_COLORS.HOME,
+    });
+    this.awayTeam = new Team(this, 'away', {
+      rating: 73, strength: 68, speed: 74, kicking: 70, handling: 72,
+      color: TEAM_COLORS.AWAY,
+    });
+    
+    // Set difficulty on teams
+    this.homeTeam.setDifficulty(this.difficulty);
+    this.awayTeam.setDifficulty(this.difficulty);
+
+    // ── Create AI Coaches ───────────────────────────────
+    this.homeTeamAI = new TeamAI(this.homeTeam, 'home');
+    this.awayTeamAI = new TeamAI(this.awayTeam, 'away');
+    
+    this.homeTeamAI.setDifficulty(this.difficulty);
+    this.awayTeamAI.setDifficulty(this.difficulty);
 
     // ── Create ball ─────────────────────────────────────
     this.ball = new Ball(this, PITCH.HALFWAY, PITCH.HEIGHT_PX / 2);
@@ -105,19 +170,103 @@ export class MatchScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.controlledPlayer.sprite, true, CAMERA.FOLLOW_LERP, CAMERA.FOLLOW_LERP);
     this.cameras.main.setZoom(CAMERA.ZOOM_DEFAULT);
 
-    // ── M2 Systems ──────────────────────────────────────
+    // ── Physics colliders: prevent player sprites overlapping ──
+    // Build sprite arrays from team player lists
+    const homeSprites = this.homeTeam.players.map(p => p.sprite);
+    const awaySprites = this.awayTeam.players.map(p => p.sprite);
+
+    // Home vs Home
+    for (let i = 0; i < homeSprites.length; i++) {
+      for (let j = i + 1; j < homeSprites.length; j++) {
+        this.physics.add.collider(homeSprites[i], homeSprites[j]);
+      }
+    }
+    // Away vs Away
+    for (let i = 0; i < awaySprites.length; i++) {
+      for (let j = i + 1; j < awaySprites.length; j++) {
+        this.physics.add.collider(awaySprites[i], awaySprites[j]);
+      }
+    }
+    // Home vs Away
+    for (const h of homeSprites) {
+      for (const a of awaySprites) {
+        this.physics.add.collider(h, a);
+      }
+    }
+
+    // ── M2/M3/M5 Systems ───────────────────────────────────
+
     this.phaseManager = new PhaseManager('KICK_OFF');
     this.ruckSystem = new RuckSystem(this);
+    this.clockSystem = new ClockSystem();
+    this.scoringSystem = new ScoringSystem();
+    this.maulSystem = new MaulSystem(this);
+    this.offsidesSystem = new OffsidesSystem();
+    this.kickoffSystem = new KickoffSystem(this.ball);
     this.powerBar = new PowerBar();
 
-    // Transition to open play on start
+    // Cascade difficulty config to sub-systems
+    this.ruckSystem.setDifficulty(this.difficulty);
+
+    // Start with kickoff → open play
     this.phaseManager.transition('OPEN_PLAY');
+    this.performKickoff();
 
     // ── Event listeners ─────────────────────────────────
     this.setupEventListeners();
 
     // ── Minimap ─────────────────────────────────────────
     this.setupMinimap();
+
+    // ── Audio Manager ────────────────────────────────────
+    this.audioManager = new AudioManager(this);
+    this.audioManager.startCrowdAmbience();
+
+    // ── Object Pools ───────────────────────────────────────
+    
+    // Create base particle texture before pooling emitters
+    if (!this.particleTextureCreated) {
+        const gfx = this.make.graphics({x: 0, y: 0});
+        gfx.fillStyle(0xffffff);
+        gfx.fillRect(0, 0, 8, 8);
+        gfx.generateTexture('particle', 8, 8);
+        this.particleTextureCreated = true;
+    }
+
+    this.labelPool = new ObjectPool<Phaser.GameObjects.Text>(
+      () => {
+        const txt = this.add.text(0, 0, '', {
+          fontSize: '20px', color: '#ffff00', fontStyle: 'bold'
+        }).setOrigin(0.5).setVisible(false).setDepth(200);
+        return txt;
+      },
+      (txt) => {
+        txt.setVisible(false);
+        txt.setAlpha(1);
+        this.tweens.killTweensOf(txt);
+      },
+      10 // Initial size
+    );
+
+    this.particlePool = new ObjectPool<Phaser.GameObjects.Particles.ParticleEmitter>(
+      () => {
+        return this.add.particles(0, 0, 'particle', {
+          speed: { min: 100, max: 300 },
+          angle: { min: 180, max: 360 }, // Upwards
+          scale: { start: 1, end: 0 },
+          lifespan: 2000,
+          gravityY: 200,
+          quantity: 50,
+          tint: [0xffffff],
+          emitting: false
+        });
+      },
+      (emitter) => {
+        emitter.stop();
+        emitter.setPosition(0, 0);
+      },
+      2 // Max tries at once is realistically 1
+    );
 
     // ── Input ───────────────────────────────────────────
     this.setupInput();
@@ -130,6 +279,9 @@ export class MatchScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // ── Update match clock ──────────────────────────────
+    this.clockSystem.update(delta);
+
     // ── Handle controlled player input ──────────────────
     this.handlePlayerInput(delta);
 
@@ -147,7 +299,7 @@ export class MatchScene extends Phaser.Scene {
     if (this.controlledPlayer.stamina < PLAYER.STAMINA_MIN_SPRINT) {
       this.controlledPlayer.sprite.setTint(0xff6666);
     } else if (!this.controlledPlayer.isGrounded) {
-      this.controlledPlayer.sprite.setTint(TEAM_COLORS.HOME);
+      this.controlledPlayer.sprite.setTint(this.homeTeam.color);
     }
 
     // ── Update power bar if charging ────────────────────
@@ -157,12 +309,71 @@ export class MatchScene extends Phaser.Scene {
     // ── Update ball ─────────────────────────────────────
     this.ball.update(delta);
 
+    // ── Check for stuck ball ────────────────────────────
+    this.checkStuckBall(delta);
+
+    // ── Check for out of bounds ─────────────────────────
+    this.checkOutOfBounds();
+
     // ── Update ruck system ──────────────────────────────
     this.ruckSystem.update(delta);
 
     // ── Auto ruck commit ────────────────────────────────
     if (this.ruckSystem.isActive()) {
       this.autoCommitToRuck();
+    }
+
+    // ── Update maul system ──────────────────────────────
+    if (this.maulSystem.isActive()) {
+      this.maulSystem.update(delta, this.ball);
+      this.autoCommitToMaul();
+    }
+
+
+    // ── Update offside lines ────────────────────────────
+    if (this.ruckSystem.isActive()) {
+      const ruckState = this.ruckSystem.getState();
+      this.offsidesSystem.setRuckOffsideLine(ruckState.x, true);
+    } else {
+      this.offsidesSystem.clearRuckOffside();
+      this.offsidesSystem.setGeneralOffsideLine(this.ball.sprite.x);
+    }
+
+    // ── Offside interference check (M5.4) ────────────────
+    if (this.ruckSystem.isActive() && this.ball.carrier) {
+      const carrierX = this.ball.carrier.sprite.x;
+      const carrierY = this.ball.carrier.sprite.y;
+      const checkTeam = this.ball.carrier.teamSide === 'home' ? this.awayTeam : this.homeTeam;
+      
+      for (const p of checkTeam.players) {
+        if (p.isInRuck || p.isGrounded) continue;
+        if (!this.offsidesSystem.isOffside(p)) continue;
+        
+        const distToCarrier = Math.hypot(p.sprite.x - carrierX, p.sprite.y - carrierY);
+        if (distToCarrier < 80) {
+          // Offside player interfering with play — penalty
+          EventBus.emit('penaltyAwarded', {
+            x: p.sprite.x,
+            y: p.sprite.y,
+            reason: 'Offside — interfering with play',
+            severity: 'penalty' as const,
+          });
+          break; // Only one penalty at a time
+        }
+      }
+    }
+
+    // ── Update Kickoff System ───────────────────────────
+    if (this.phaseManager.getPhase() === 'KICK_OFF') {
+      this.kickoffSystem.update(delta);
+    }
+
+    // ── Check for try scored ────────────────────────────
+    if (this.phaseManager.getPhase() === 'OPEN_PLAY') {
+      const tryResult = this.scoringSystem.checkTry(this.ball);
+      if (tryResult && tryResult.scored) {
+        this.handleTryScored(tryResult.team);
+      }
     }
 
     // ── Auto-switch on defense ──────────────────────────
@@ -172,12 +383,154 @@ export class MatchScene extends Phaser.Scene {
       this.autoSwitchTimer = 0;
     }
 
+    // ── Human Input: Drop Goal ──────────────────────────
+    if (this.input.keyboard?.checkDown(this.input.keyboard.addKey('D'), 1000)) {
+       if (this.controlledPlayer && this.controlledPlayer.hasBall) {
+         this.attemptDropGoal(this.controlledPlayer);
+       }
+    }
+
     // ── Update AI players ───────────────────────────────
-    this.homeTeam.update(delta, this.ball, this.controlledPlayer);
-    this.awayTeam.update(delta, this.ball, null);
+    // Only run AI movement and decisions during active play
+    const activePhase = this.phaseManager.getPhase();
+    const isPlayPhase = activePhase === 'OPEN_PLAY' || activePhase === 'KICK_OFF';
+    if (isPlayPhase) {
+      const phaseCount = this.phaseManager.getPhaseCount();
+      this.homeTeamAI.update(delta, this.ball, phaseCount);
+      this.awayTeamAI.update(delta, this.ball, phaseCount);
+      this.homeTeam.update(delta, this.ball, this.controlledPlayer);
+      this.awayTeam.update(delta, this.ball, null);
+    }
 
     // ── Update HUD ──────────────────────────────────────
     this.updateHUD();
+
+    // ── Territory tracking ──────────────────────────────
+    this.territoryTotalSamples++;
+    if (this.ball.sprite.x < PITCH.HALFWAY) {
+      this.territoryHomeSamples++; // Ball in home's half  
+    }
+
+    // ── Minimap viewport rect ───────────────────────────
+    this.updateMinimapViewport();
+
+    // ── Audio ───────────────────────────────────────────
+    this.audioManager.update(delta);
+
+    // ── DEBUG: AI Visualization ─────────────────────────
+    // Toggle with P key (setup in input)
+    if (this.keys.P?.isDown) {
+      this.drawAIDebug();
+    } else {
+      this.debugGraphics?.clear();
+    }
+
+    // ── Process Queued Transitions ──────────────────────
+    this.phaseManager.update();
+  }
+
+  private checkStuckBall(delta: number): void {
+    if (this.ball.state !== 'loose') {
+      this.stuckBallTimer = 0;
+      return;
+    }
+
+    const { x, y } = this.ball.sprite;
+    const dx = x - this.lastBallPos.x;
+    const dy = y - this.lastBallPos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // If ball moved very little, increment timer
+    if (dist < 5) {
+      this.stuckBallTimer += delta;
+      
+      if (this.stuckBallTimer > 5000) { // 5 seconds
+        // Award scrum 
+        if (this.phaseManager.canTransition('SCRUM')) {
+          this.phaseManager.queueTransition('SCRUM', 1);
+          this.time.delayedCall(500, () => {
+              EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'SCRUM' });
+          });
+        }
+        this.stuckBallTimer = 0; // Reset
+      }
+    } else {
+      this.stuckBallTimer = 0;
+    }
+
+    this.lastBallPos.x = x;
+    this.lastBallPos.y = y;
+  }
+
+  private checkOutOfBounds(): void {
+    const { x, y } = this.ball.sprite;
+    const isLoose = this.ball.state === 'loose';
+    const isKicked = this.ball.state === 'kicked';
+    const isCarried = this.ball.state === 'carried';
+
+    // Sidelines (Touch)
+    if (y <= 0 || y >= PITCH.HEIGHT_PX) {
+      if (isCarried) {
+        // Carried into touch -> Lineout
+        if (this.phaseManager.canTransition('LINEOUT')) {
+           this.phaseManager.queueTransition('LINEOUT', 1);
+           EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'LINEOUT' });
+        }
+      } else if (isKicked) {
+        // Kicked out on full
+        if (this.phaseManager.canTransition('SCRUM')) {
+           this.phaseManager.queueTransition('SCRUM', 1);
+           EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'SCRUM' });
+        }
+      } else if (isLoose) {
+        // Bounced out -> Lineout
+        if (this.phaseManager.canTransition('LINEOUT')) {
+           this.phaseManager.queueTransition('LINEOUT', 1);
+           EventBus.emit('phaseChange', { from: 'OPEN_PLAY', to: 'LINEOUT' });
+        }
+      }
+    }
+
+    // Dead-ball lines (In-Goal)
+    if (x <= 0 || x >= PITCH.WIDTH_PX) {
+      if (isKicked || isLoose) {
+        // Ball went dead
+        // Simple logic: if attacking team kicked it dead -> 22m drop out
+        // If defending team kicked/carried it dead -> 5m scrum
+        const deadSide = x <= 0 ? 'home' : 'away';
+        // For now, always give a 22 dropout to the defending team of that zone
+        this.performDropout22(deadSide);
+      }
+    }
+  }
+
+  private debugGraphics!: Phaser.GameObjects.Graphics;
+
+  private drawAIDebug(): void {
+    if (!this.debugGraphics) {
+      this.debugGraphics = this.add.graphics().setDepth(100);
+    }
+    this.debugGraphics.clear();
+
+    const drawPlayerDebug = (team: Team, color: number) => {
+      this.debugGraphics.lineStyle(1, color, 0.5);
+      for (const p of team.players) {
+        // Draw line to formation target
+        this.debugGraphics.beginPath();
+        this.debugGraphics.moveTo(p.sprite.x, p.sprite.y);
+        this.debugGraphics.lineTo(p.formationX, p.formationY);
+        this.debugGraphics.strokePath();
+        
+        // Draw target circle
+        this.debugGraphics.strokeCircle(p.formationX, p.formationY, 2);
+      }
+    };
+
+    drawPlayerDebug(this.homeTeam, 0x00ff00);
+    drawPlayerDebug(this.awayTeam, 0xff0000);
+
+    // Draw offside debug lines (M5.4)
+    this.offsidesSystem.renderDebugLine(this.debugGraphics);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -185,58 +538,350 @@ export class MatchScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────
 
   private setupEventListeners(): void {
-    EventBus.on('ruckBallAvailable', () => {
-      // Ball available from ruck → transition to open play
+    EventBus.on('ruckBallAvailable', (data: { x: number; y: number; attackingTeam: 'home' | 'away' }) => {
       if (this.phaseManager.canTransition('OPEN_PLAY')) {
         this.phaseManager.transition('OPEN_PLAY');
         this.ruckSystem.endRuck();
-        // SH picks up ball
-        const sh = this.homeTeam.getPlayerByPosition(Position.SCRUM_HALF);
-        this.ball.attachToPlayer(sh);
+        // Give ball to the ATTACKING team's scrum-half
+        const attackTeam = data.attackingTeam === 'home' ? this.homeTeam : this.awayTeam;
+        const sh = attackTeam.getPlayerByPosition(Position.SCRUM_HALF);
+        if (sh) this.ball.attachToPlayer(sh);
       }
     });
 
-    EventBus.on('ruckTurnover', () => {
-      // Turnover → away team gets ball
+    EventBus.on('ruckTurnover', (data: { x: number; y: number; attackingTeam: 'home' | 'away' }) => {
       if (this.phaseManager.canTransition('OPEN_PLAY')) {
         this.phaseManager.transition('OPEN_PLAY');
         this.ruckSystem.endRuck();
-        const awaySH = this.awayTeam.getPlayerByPosition(Position.SCRUM_HALF);
-        this.ball.attachToPlayer(awaySH);
+        // On turnover, attackingTeam is the NEW attacker (former defender)
+        const newAtkTeam = data.attackingTeam === 'home' ? this.homeTeam : this.awayTeam;
+        const sh = newAtkTeam.getPlayerByPosition(Position.SCRUM_HALF);
+        if (sh) this.ball.attachToPlayer(sh);
       }
     });
 
     EventBus.on('ruckTimeout', () => {
-      // Timeout → scrum
+      // 5s elapsed — award attacking team the ball via scrum
+      const atkSide = this.ruckSystem.getAttackingTeam();
       this.ruckSystem.endRuck();
       if (this.phaseManager.canTransition('SCRUM')) {
         this.phaseManager.transition('SCRUM');
-        // Auto-resolve scrum for now → open play
         this.time.delayedCall(2000, () => {
           if (this.phaseManager.canTransition('OPEN_PLAY')) {
             this.phaseManager.transition('OPEN_PLAY');
-            const sh = this.homeTeam.getPlayerByPosition(Position.SCRUM_HALF);
-            this.ball.attachToPlayer(sh);
+            const atkTeam = atkSide === 'home' ? this.homeTeam : this.awayTeam;
+            const sh = atkTeam.getPlayerByPosition(Position.SCRUM_HALF);
+            if (sh) this.ball.attachToPlayer(sh);
           }
         });
       }
     });
 
-    EventBus.on('penaltyAwarded', (_data) => {
-      // Simplified: just transition and give ball back
-      if (this.phaseManager.canTransition('PENALTY')) {
-        this.phaseManager.transition('PENALTY');
-        this.ruckSystem.endRuck();
-        // Auto tap and go after 1.5s
-        this.time.delayedCall(1500, () => {
-          if (this.phaseManager.canTransition('TAP_AND_GO')) {
-            this.phaseManager.transition('TAP_AND_GO');
-            this.phaseManager.transition('OPEN_PLAY');
-            const flyHalf = this.homeTeam.getPlayerByPosition(Position.FLY_HALF);
-            this.ball.attachToPlayer(flyHalf);
-          }
-        });
+    EventBus.on('penaltyAwarded', (data: { x: number; y: number; reason: string; severity?: 'penalty'|'free_kick' }) => {
+      if (!this.phaseManager.canTransition('PENALTY')) return;
+
+      this.clockSystem.pause();
+      this.phaseManager.transition('PENALTY');
+      this.ruckSystem.endRuck();
+
+      const isFreeKick = data.severity === 'free_kick';
+      const typeLabel = isFreeKick ? 'FREE KICK' : 'PENALTY';
+      
+      // Simple UI
+      const { width, height } = this.cameras.main;
+      const cy = height / 2;
+      
+      const title = this.add.text(width / 2, cy - 100, `${typeLabel}: ${data.reason.toUpperCase()}`, {
+         fontSize: '32px', color: '#ff0000', backgroundColor: '#000000'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+
+      // Options
+      let optionsText = '[2] Scrum  [3] Lineout  [4] Tap';
+      if (!isFreeKick) {
+         optionsText = '[1] Kick at Goal  ' + optionsText;
       }
+      
+      const opts = this.add.text(width / 2, cy, optionsText, {
+         fontSize: '24px', color: '#ffffff', backgroundColor: '#000000'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+
+      const clearUI = () => {
+         title.destroy();
+         opts.destroy();
+         this.input.keyboard?.off('keydown-ONE');
+         this.input.keyboard?.off('keydown-TWO');
+         this.input.keyboard?.off('keydown-THREE');
+         this.input.keyboard?.off('keydown-FOUR');
+         this.clockSystem.resume();
+      };
+      
+      if (this.input.keyboard) {
+          // [1] Kick at Goal
+          if (!isFreeKick) {
+             this.input.keyboard.on('keydown-ONE', () => {
+                clearUI();
+                this.scene.launch('SetPieceScene', {
+                   type: 'penalty_kick',
+                   x: data.x, y: data.y,
+                   team: this.controlledPlayer.teamSide 
+                });
+                this.scene.pause();
+             });
+          }
+          
+          // [2] Scrum
+          this.input.keyboard.on('keydown-TWO', () => {
+             clearUI();
+             // Transition logic handled by phase change usually, but we need to trigger it manually or via event
+             // Let's just launch scene directly for M3 simplicity, similar to other set pieces
+             this.scene.launch('SetPieceScene', {
+                type: 'scrum',
+                x: data.x, y: data.y,
+                team: this.controlledPlayer.teamSide,
+                stats: { homeStrength: 50, awayStrength: 50, homeHooking: 50, awayHooking: 50 } // Simplified stats for now
+             });
+             this.scene.pause();
+          });
+
+          // [3] Lineout (Kick to Touch simulation -> just start lineout at sideline)
+          this.input.keyboard.on('keydown-THREE', () => {
+             clearUI();
+             // Find nearest touchline y
+             const touchY = data.y < PITCH.HEIGHT_PX / 2 ? 0 : PITCH.HEIGHT_PX;
+             this.scene.launch('SetPieceScene', {
+                type: 'lineout',
+                x: data.x, y: touchY, // Move to touch
+                team: this.controlledPlayer.teamSide
+             });
+             this.scene.pause();
+          });
+
+          // [4] Tap and Go
+          this.input.keyboard.on('keydown-FOUR', () => {
+             clearUI();
+             this.phaseManager.transition('TAP_AND_GO');
+             this.phaseManager.transition('OPEN_PLAY');
+             // Give ball to scrum half or clicked player
+             const sh = this.homeTeam.getPlayerByPosition(9);
+             if (sh) this.ball.attachToPlayer(sh);
+          });
+      }
+
+      // ── Auto-resolve after 8s (prevents stuck PENALTY state) ─
+      const penaltyTimeout = this.time.delayedCall(8000, () => {
+        if (this.phaseManager.getPhase() !== 'PENALTY') return;
+        clearUI();
+        if (this.phaseManager.canTransition('OPEN_PLAY')) {
+          this.phaseManager.transition('OPEN_PLAY');
+        } else {
+          this.phaseManager.forcePhase('OPEN_PLAY');
+        }
+        const fallbackSH = this.homeTeam.getPlayerByPosition(9);
+        if (fallbackSH) this.ball.attachToPlayer(fallbackSH);
+      });
+      const cancelPenaltyTimeout = () => penaltyTimeout.remove(false);
+      this.input.keyboard?.once('keydown-ONE', cancelPenaltyTimeout);
+      this.input.keyboard?.once('keydown-TWO', cancelPenaltyTimeout);
+      this.input.keyboard?.once('keydown-THREE', cancelPenaltyTimeout);
+      this.input.keyboard?.once('keydown-FOUR', cancelPenaltyTimeout);
+    });
+
+    // ── M3: Clock events ─────────────────────────────────
+    EventBus.on('halfTime', () => {
+      if (this.phaseManager.canTransition('HALF_TIME')) {
+        this.phaseManager.transition('HALF_TIME');
+      } else {
+        this.phaseManager.forcePhase('HALF_TIME');
+      }
+      this.clockSystem.pause();
+      // Launch half-time scene overlay
+      const score = this.scoringSystem.getScore();
+      const territoryPct = this.territoryTotalSamples > 0
+        ? Math.round((this.territoryHomeSamples / this.territoryTotalSamples) * 100)
+        : 50;
+      this.scene.launch('HalfTimeScene', {
+        homeScore: score.home,
+        awayScore: score.away,
+        possession: 50,
+        territory: territoryPct,
+        tackles: { home: 0, away: 0 },
+        passes: { home: 0, away: 0 },
+        carries: { home: 0, away: 0 },
+        penalties: { home: 0, away: 0 },
+      });
+      this.scene.pause();
+    });
+
+    EventBus.on('fullTime', () => {
+      if (this.phaseManager.canTransition('FULL_TIME')) {
+        this.phaseManager.transition('FULL_TIME');
+      } else {
+        this.phaseManager.forcePhase('FULL_TIME');
+      }
+      this.clockSystem.pause();
+      const score = this.scoringSystem.getScore();
+      this.scene.start('ResultScene', {
+        homeScore: score.home,
+        awayScore: score.away,
+        stats: {
+          possession: { home: 50, away: 50 },
+          tackles: { home: 0, away: 0 },
+          carries: { home: 0, away: 0 },
+          passes: { home: 0, away: 0 },
+          penalties: { home: 0, away: 0 },
+        },
+      });
+    });
+
+    // Resume from half-time
+    EventBus.on('secondHalfStart', () => {
+      this.clockSystem.startSecondHalf();
+      this.phaseManager.forcePhase('KICK_OFF');
+      this.phaseManager.transition('OPEN_PLAY');
+      // Second half started by Away team (usually)
+      this.performKickoff('away');
+      this.scene.resume();
+    });
+
+    // ── Score event for HUD ──────────────────────────────
+    EventBus.on('score', () => {
+      // HUD picks up new score in updateHUD()
+    });
+
+    // ── Tackle event: cosmetics + audio only ────────────────────
+    // Game logic is handled in tryTackleOrFend() and Team.attemptAITackle()
+    // This handler is ONLY for side effects (audio, camera shake, etc.)
+    EventBus.on('tackle', (_data: any) => {
+      // Camera micro-shake on tackle
+      this.cameras.main.shake(80, 0.003);
+    });
+
+
+
+
+    // ── Set Piece Resolution ─────────────────────────────
+    EventBus.on('ruckResolved', (data: { team: 'home' | 'away'; action?: string }) => {
+      const winningTeam = data.team === 'home' ? this.homeTeam : this.awayTeam;
+      
+      let recipient = winningTeam.getPlayerByPosition(Position.SCRUM_HALF); // Default 9
+
+      if (data.action === 'maul') {
+          // Driving maul from lineout (M5.3)
+          const ballX = this.ball.sprite.x;
+          const nearTryLine = data.team === 'home'
+            ? ballX > PITCH.LINE_22_RIGHT
+            : ballX < PITCH.LINE_22_LEFT;
+
+          if (nearTryLine) {
+            // Start a driving maul instead of giving ball to backs
+            const jumper = winningTeam.getPlayerByPosition(5) || winningTeam.getPlayerByPosition(4);
+            const supporter = winningTeam.getPlayerByPosition(1); // Loosehead prop as initial supporter
+            
+            if (jumper && supporter) {
+              // Find a defender to act as the tackler in the maul
+              const oppTeam = data.team === 'home' ? this.awayTeam : this.homeTeam;
+              const nearestDef = oppTeam.players
+                .filter(p => !p.isGrounded && !p.isInRuck && p.position <= 8)
+                .sort((a, b) => {
+                  const dA = Math.hypot(a.sprite.x - jumper.sprite.x, a.sprite.y - jumper.sprite.y);
+                  const dB = Math.hypot(b.sprite.x - jumper.sprite.x, b.sprite.y - jumper.sprite.y);
+                  return dA - dB;
+                })[0];
+
+              if (nearestDef && this.phaseManager.canTransition('MAUL')) {
+                this.ball.attachToPlayer(jumper);
+                this.phaseManager.transition('MAUL');
+                this.maulSystem.startMaul(jumper, nearestDef, supporter, data.team === 'home');
+                this.cameras.main.zoomTo(CAMERA.ZOOM_DEFAULT, 1000, 'cubic.out');
+                this.scene.resume();
+                return;
+              }
+            }
+          }
+          
+          // Fallback: ball to Lock/Forward
+          recipient = winningTeam.getPlayerByPosition(5) || winningTeam.getPlayerByPosition(4) || recipient;
+      } else if (data.action === 'blindside' || data.action === 'openside') {
+          // Ball to SH (9) as usual
+      }
+
+      if (recipient) {
+        this.ball.attachToPlayer(recipient);
+        this.cameras.main.zoomTo(CAMERA.ZOOM_DEFAULT, 1000, 'cubic.out');
+      }
+
+      // Resume play
+      if (this.phaseManager.canTransition('OPEN_PLAY')) {
+        this.phaseManager.transition('OPEN_PLAY');
+      }
+      this.scene.resume();
+    });
+
+    // ── Phase Change Listener ────────────────────────────
+    EventBus.on('phaseChange', (data: { from: string, to: string }) => {
+      if (data.to === 'SCRUM') {
+         // Determine feed team
+         const feedTeam = this.controlledPlayer.teamSide; 
+         
+         // Calculate pack strengths (average of forwards 1-8)
+         const calculatePackStrength = (team: Team) => {
+            let total = 0;
+            let count = 0;
+            for (const p of team.players) {
+               if (p.position <= 8) { // Forwards are 1-8
+                  total += p.stats.strength;
+                  count++;
+               }
+            }
+            return count > 0 ? total / count : 50;
+         };
+
+         // Get Hooker stats (Position 2, index 1 usually, but check position prop)
+         const getHookerInstinct = (team: Team) => {
+            const hooker = team.players.find(p => p.position === 2);
+            // Fallback for testing if no hooker found
+            return hooker ? (hooker.stats.handling || 50) : 50; 
+            // Using 'handling' as proxy for hooking skill
+         };
+
+         const homeStrength = calculatePackStrength(this.homeTeam);
+         const awayStrength = calculatePackStrength(this.awayTeam);
+         const homeHooking = getHookerInstinct(this.homeTeam);
+         const awayHooking = getHookerInstinct(this.awayTeam);
+
+         this.scene.launch('SetPieceScene', {
+            type: 'scrum',
+            x: this.ball.sprite.x,
+            y: this.ball.sprite.y,
+            team: feedTeam,
+            stats: { 
+               homeStrength, 
+               awayStrength,
+               homeHooking,
+               awayHooking
+            }
+         });
+         this.scene.pause();
+         
+         // Zoom camera
+         this.cameras.main.zoomTo(1.5, 1000, 'cubic.in');
+      } else if (data.to === 'LINEOUT') {
+         // Determine throw team
+         const throwTeam = this.ball.sprite.x < PITCH.HALFWAY ? 'home' : 'away';
+
+         this.scene.launch('SetPieceScene', {
+            type: 'lineout',
+            x: this.ball.sprite.x,
+            y: this.ball.sprite.y,
+            team: throwTeam
+         });
+         this.scene.pause();
+      }
+    });
+
+    // ── Play Selected from PlaySelector UI ───────────────
+    EventBus.on('playSelected', (data: { play: string }) => {
+      this.homeTeamAI.setCurrentPlay(data.play as any);
     });
   }
 
@@ -396,10 +1041,141 @@ export class MatchScene extends Phaser.Scene {
     ).setStrokeStyle(1, 0x4ade80).setScrollFactor(0).setDepth(100);
     this.minimapCamera.ignore(border);
     this.hudElements.push(border);
+
+    // Viewport rectangle (drawn in world coords, visible on minimap)
+    this.minimapViewRect = this.add.graphics().setDepth(50);
+  }
+
+  /** Update the viewport rectangle on the minimap showing the main camera's visible area. */
+  private updateMinimapViewport(): void {
+    if (!this.minimapViewRect) return;
+    this.minimapViewRect.clear();
+    const cam = this.cameras.main;
+    const x = cam.scrollX;
+    const y = cam.scrollY;
+    const w = cam.width / cam.zoom;
+    const h = cam.height / cam.zoom;
+    this.minimapViewRect.lineStyle(3, 0x4ade80, 0.8);
+    this.minimapViewRect.strokeRect(x, y, w, h);
+  }
+
+  // ── Drop Goal Logic ──────────────────────────────────
+  attemptDropGoal(kicker: Player): void {
+    if (!kicker.hasBall) return;
+    
+    // Check phases/cooldown or state? 
+    if (this.phaseManager.getPhase() !== 'OPEN_PLAY') return;
+
+    // Determine target posts
+    const targetX = kicker.teamSide === 'home' ? PITCH.POST_RIGHT_X : PITCH.POST_LEFT_X;
+    const targetY = PITCH.POST_Y;
+    
+    const dist = Phaser.Math.Distance.Between(kicker.sprite.x, kicker.sprite.y, targetX, targetY);
+    
+    // Convert px to meters for probability calc (approx)
+    // PITCH.M_TO_PX = 10. So 400px = 40m.
+    // ScoringSystem uses px directly.
+    
+    const effectiveKicking = kicker.stats.kicking * this.difficulty.kickAccuracyModifier;
+    const success = this.scoringSystem.attemptDropGoal(kicker.teamSide, effectiveKicking, dist);
+    
+    // Animate Kick
+    // We want a high arc (Drop Goal type)
+    // Kicking.ts: DROP_GOAL config: arcHeight 0.2, flight 1.2s.
+    // We use Ball.kickWithType to simulate it.
+    
+    let endX = targetX;
+    let endY = targetY;
+    
+    if (!success) {
+      // Miss wide or short
+      const missOffset = (Math.random() > 0.5 ? 1 : -1) * (50 + Math.random() * 100);
+      endY += missOffset;
+      // Maybe short?
+      if (Math.random() < 0.3) endX -= 100 * (kicker.teamSide === 'home' ? 1 : -1);
+    }
+    
+    // Visual text
+    const text = success ? "DROP GOAL!" : "MISSED!";
+    const color = success ? '#00ff00' : '#ff0000';
+    this.add.text(kicker.sprite.x, kicker.sprite.y - 50, text, { 
+      fontSize: '24px', fontStyle: 'bold', color: color 
+    }).setOrigin(0.5).setDepth(100).setStroke('#000000', 4); // Fade out??
+
+    // Execute kick
+    this.ball.kickWithType(
+      kicker,
+      0.9, // Power
+      dist + 100, // Distance (kick through posts)
+      endX, endY,
+      0.3, // Arc height
+      1.5, // Duration
+      false, // Bounces
+      0 // Deviation
+    );
+
+    this.phaseManager.transition('DROP_GOAL');
+    
+    // If missed, we accept it goes dead or is fielded.
+    // For M5 simplicity, transition to 22 drop out or restart after a short delay?
+    // ScoringSystem emits 'score' event if success.
+    // MatchScene handles 'score' event? 
+    // Wait, MatchScene.setupEventListeners for 'score' handles HUD.
+    // Does it handle restart?
+    // checkTry calls awardTry -> sets phase to CONVERSION.
+    // Drop Goal success -> 3 points. Restart?
+    // Rugby: Restart at center (Kick Off).
+    
+    this.time.delayedCall(2000, () => {
+      if (success) {
+         // Success -> Kick Off (handled by score event -> logic?)
+         // Actually ScoreSystem emits score. MatchScene updates HUD.
+         // We need to trigger restart flow.
+         this.phaseManager.forcePhase('KICK_OFF');
+         this.phaseManager.transition('OPEN_PLAY');
+         // Restart by conceding team
+         const restartTeam = kicker.teamSide === 'home' ? 'away' : 'home';
+         this.performKickoff(restartTeam);
+       } else {
+         // Miss -> 22m Drop Out (defending team kicks from 22)
+         // Transition to 'DROP_OUT_22' (map to restart logic)
+         // For now, just reset like a 22 dropout?
+         // Simpler: Scrum at kick point? Or 22 dropout.
+         // Let's force a 22 dropout restart.
+         this.phaseManager.transition('OPEN_PLAY'); // Reset phase?
+         this.performDropout22(kicker.teamSide === 'home' ? 'away' : 'home');
+       }
+    });
+  }
+
+  performDropout22(kickingTeam: 'home' | 'away'): void {
+     // Position ball at 22 center
+     const x = kickingTeam === 'home' ? PITCH.LINE_22_LEFT : PITCH.LINE_22_RIGHT;
+     const y = PITCH.HEIGHT_PX / 2;
+     
+     this.ball.sprite.setPosition(x, y);
+     this.ball.sprite.setVelocity(0, 0);
+     this.ball.state = 'loose';
+     
+     // Give ball to kicker
+     const team = kickingTeam === 'home' ? this.homeTeam : this.awayTeam;
+     const kicker = team.getPlayerByPosition(Position.FLY_HALF);
+     if (kicker) {
+       kicker.sprite.setPosition(x, y);
+       this.ball.attachToPlayer(kicker);
+       // Auto kick? Or let them play?
+       // Let them play (Tap and Go style)
+     }
+  }
+
+  // @ts-ignore — kept for AI tackle handler compatibility
+  private getPlayerById(id: string): Player | undefined {
+    return this.homeTeam.players.find(p => p.id === id) || 
+           this.awayTeam.players.find(p => p.id === id);
   }
 
   // ─────────────────────────────────────────────────────────
-  // INPUT
+  // HELPERS
   // ─────────────────────────────────────────────────────────
 
   private setupInput(): void {
@@ -579,20 +1355,30 @@ export class MatchScene extends Phaser.Scene {
             if (this.phaseManager.canTransition('KNOCK_ON')) {
               this.phaseManager.transition('KNOCK_ON');
               // Award scrum after knock-on
+              // Listen for phaseChange will handle launching SetPieceScene
               this.time.delayedCall(1500, () => {
-                if (this.phaseManager.canTransition('SCRUM')) {
-                  this.phaseManager.transition('SCRUM');
-                  this.time.delayedCall(2000, () => {
-                    if (this.phaseManager.canTransition('OPEN_PLAY')) {
-                      this.phaseManager.transition('OPEN_PLAY');
-                    }
-                  });
-                }
+                 this.phaseManager.transition('SCRUM');
               });
             }
           }
         }
       });
+    } else {
+       // Visual feedback: No receiver (using pool)
+       const label = this.labelPool.get();
+       label.setPosition(carrier.sprite.x, carrier.sprite.y - 30);
+       label.setText('?');
+       label.setVisible(true);
+       
+       this.tweens.add({
+         targets: label,
+         y: label.y - 30,
+         alpha: 0,
+         duration: 800,
+         onComplete: () => {
+           this.labelPool.release(label);
+         }
+       });
     }
   }
 
@@ -704,7 +1490,7 @@ export class MatchScene extends Phaser.Scene {
   private closeKickSelector(): void {
     this.kickSelectorOpen = false;
     for (const item of this.kickSelectorItems) {
-      item.destroy();
+  item.destroy();
     }
     this.kickSelectorItems = [];
   }
@@ -713,90 +1499,158 @@ export class MatchScene extends Phaser.Scene {
   // TACKLING & FENDING (M2.8)
   // ─────────────────────────────────────────────────────────
 
+  /** Cooldown to prevent tackle button spam */
+  private _tackleCooldown = false;
+
   private tryTackleOrFend(): void {
+    // Only allow during active play
+    const phase = this.phaseManager.getPhase();
+    if (phase !== 'OPEN_PLAY') return;
+
     // If player has ball → fend
     if (this.controlledPlayer.hasBall) {
       this._fendingActive = true;
       return;
     }
 
-    // Otherwise → tackle nearest opponent with ball
-    for (const p of this.awayTeam.players) {
-      if (!p.hasBall) continue;
+    // Cooldown guard
+    if (this._tackleCooldown) return;
 
-      if (!isInTackleRange(
-        this.controlledPlayer.sprite.x, this.controlledPlayer.sprite.y,
-        p.sprite.x, p.sprite.y,
-        PLAYER.TACKLE_RANGE
-      )) continue;
+    // Find nearest opponent carrying the ball
+    const carrier = this.awayTeam.players.find(p => p.hasBall);
+    if (!carrier) return;
 
-      const carrierSprinting = Math.abs(p.sprite.body?.velocity.x ?? 0) > 100 ||
-                               Math.abs(p.sprite.body?.velocity.y ?? 0) > 100;
+    const inRange = isInTackleRange(
+      this.controlledPlayer.sprite.x, this.controlledPlayer.sprite.y,
+      carrier.sprite.x, carrier.sprite.y,
+      PLAYER.TACKLE_RANGE,
+    );
+    if (!inRange) return;
 
-      const result = resolveTackle(
-        this.controlledPlayer.stats,
-        p.stats,
-        carrierSprinting,
-        false, // Away team doesn't fend (AI will handle this later)
-      );
+    // Set cooldown (cleared after recovery)
+    this._tackleCooldown = true;
+    this.time.delayedCall(1200, () => { this._tackleCooldown = false; });
 
-      EventBus.emit('tackle', {
-        tacklerId: this.controlledPlayer.id,
-        carrierId: p.id,
-        outcome: result.outcome,
-      });
+    const carrierSprinting =
+      Math.abs(carrier.sprite.body?.velocity.x ?? 0) > 100 ||
+      Math.abs(carrier.sprite.body?.velocity.y ?? 0) > 100;
 
-      switch (result.outcome) {
-        case 'dominant':
-          // Ball dislodged — loose ball
-          p.getsTackled();
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
+    const result = resolveTackle(
+      this.controlledPlayer.stats,
+      carrier.stats,
+      carrierSprinting,
+      false,
+    );
+
+    // Emit for audio only (no game logic in the handler)
+    EventBus.emit('tackle', { tacklerId: this.controlledPlayer.id, carrierId: carrier.id, outcome: result.outcome });
+
+    // Visual: brief flash on tackler (not a positional tween)
+    this.controlledPlayer.sprite.setTint(0xffffff);
+    this.time.delayedCall(100, () => {
+      this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+    });
+
+    switch (result.outcome) {
+      case 'dominant':
+        // Hard hit — ball dislodged
+        carrier.getsTackled();
+        carrier.releaseBall();
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
+        // Brief ruck still forms
+        if (this.phaseManager.canTransition('TACKLE')) {
+          this.phaseManager.transition('TACKLE');
+          this.time.delayedCall(400, () => {
+            if (this.phaseManager.canTransition('RUCK')) {
+              this.phaseManager.transition('RUCK');
+              this.ruckSystem.startRuck(carrier.sprite.x, carrier.sprite.y, carrier.teamSide);
+            }
           });
-          this.ball.dropLoose(p.sprite.x, p.sprite.y);
-          break;
+        }
+        break;
 
-        case 'normal':
-          // Normal tackle → ruck forms
-          p.getsTackled();
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
+      case 'normal': {
+        // Standard tackle — carrier goes to ground, ruck forms
+        carrier.getsTackled();
+        carrier.releaseBall();
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
+
+        if (this.phaseManager.canTransition('TACKLE')) {
+          this.phaseManager.transition('TACKLE');
+          this.time.delayedCall(400, () => {
+            if (this.phaseManager.canTransition('RUCK')) {
+              this.phaseManager.transition('RUCK');
+              this.ruckSystem.startRuck(carrier.sprite.x, carrier.sprite.y, carrier.teamSide);
+            }
           });
-          this.ball.dropLoose(p.sprite.x, p.sprite.y);
+        }
+        break;
+      }
 
-          // Transition to TACKLE then RUCK
+      case 'heldUp': {
+        // Carrier wrestled but stays on feet — look for maul
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+
+        const supporter = this.awayTeam.players.find(p => {
+          if (p === carrier || p.isGrounded || p.isInRuck) return false;
+          return Math.hypot(p.sprite.x - carrier.sprite.x, p.sprite.y - carrier.sprite.y) < 80;
+        });
+
+        if (supporter && this.phaseManager.canTransition('MAUL')) {
+          this.phaseManager.transition('MAUL');
+          const attacksRight = carrier.teamSide === 'home';
+          this.maulSystem.startMaul(carrier, this.controlledPlayer, supporter, attacksRight);
+        } else {
+          // No support — treat as normal tackle
+          carrier.getsTackled();
+          carrier.releaseBall();
+          this.ball.dropLoose(carrier.sprite.x, carrier.sprite.y);
           if (this.phaseManager.canTransition('TACKLE')) {
             this.phaseManager.transition('TACKLE');
-            this.time.delayedCall(500, () => {
+            this.time.delayedCall(400, () => {
               if (this.phaseManager.canTransition('RUCK')) {
                 this.phaseManager.transition('RUCK');
-                this.ruckSystem.startRuck(p.sprite.x, p.sprite.y);
+                this.ruckSystem.startRuck(carrier.sprite.x, carrier.sprite.y, carrier.teamSide);
               }
             });
           }
-          break;
-
-        case 'missed':
-          // Tackler stumbles, carrier keeps going
-          this.controlledPlayer.sprite.setVelocity(0, 0);
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
-          });
-          break;
-
-        case 'fendOff':
-          // Carrier fended off the tackler
-          this.controlledPlayer.sprite.setVelocity(0, 0);
-          this.controlledPlayer.isGrounded = true;
-          this.time.delayedCall(result.tacklerRecoveryMs, () => {
-            this.controlledPlayer.isGrounded = false;
-          });
-          break;
+        }
+        break;
       }
-      break; // Only tackle one player
+
+      case 'missed':
+        // Tackler stumbles, carrier runs free
+        this.controlledPlayer.sprite.setVelocity(0, 0);
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        break;
+
+      case 'fendOff':
+        // Carrier pushed tackler away
+        this.controlledPlayer.sprite.setVelocity(0, 0);
+        this.controlledPlayer.isGrounded = true;
+        this.time.delayedCall(result.tacklerRecoveryMs, () => {
+          this.controlledPlayer.isGrounded = false;
+          this.controlledPlayer.sprite.setTint(this.homeTeam.color);
+        });
+        break;
     }
   }
 
@@ -814,7 +1668,7 @@ export class MatchScene extends Phaser.Scene {
     for (const p of this.homeTeam.players) {
       if (p === this.controlledPlayer || p.isGrounded || p.isInRuck) continue;
       const d = distance({ x: p.sprite.x, y: p.sprite.y }, ruckPos);
-      if (d < 80 && ruckState.attackers.length < 4) {
+      if (d < 80 && ruckState.attackers.length < 3) {
         p.isInRuck = true;
         p.moveToward(ruckState.x, ruckState.y, 0.5);
         this.ruckSystem.commitPlayer(p, true);
@@ -833,6 +1687,180 @@ export class MatchScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────
+  // MAUL AUTO-COMMIT (M5.3)
+  // ─────────────────────────────────────────────────────────
+
+  private autoCommitToMaul(): void {
+    const maulState = this.maulSystem.getState();
+    if (!maulState.active) return;
+
+    const maulPos = { x: maulState.x, y: maulState.y };
+
+    // Commit nearest forwards from attacking team
+    for (const p of this.homeTeam.players) {
+      if (p === this.controlledPlayer || p.isGrounded || p.isInRuck) continue;
+      if (p.position > 8) continue; // Only forwards join mauls
+      const d = distance({ x: p.sprite.x, y: p.sprite.y }, maulPos);
+      if (d < 100 && maulState.attackers.length < 5) {
+        this.maulSystem.commitPlayer(p, true);
+      }
+    }
+
+    // Commit nearest forwards from defending team
+    for (const p of this.awayTeam.players) {
+      if (p.isGrounded || p.isInRuck) continue;
+      if (p.position > 8) continue;
+      const d = distance({ x: p.sprite.x, y: p.sprite.y }, maulPos);
+      if (d < 100 && maulState.defenders.length < 4) {
+        this.maulSystem.commitPlayer(p, false);
+      }
+    }
+
+    // Ball transfer: after 2s of progressing, release ball
+    const elapsed = Date.now() - maulState.startTime;
+    if (elapsed > 2000 && maulState.attackers.length >= 2) {
+      const atkStr = maulState.attackers.reduce((s, p) => s + p.stats.strength, 0);
+      const defStr = maulState.defenders.reduce((s, p) => s + p.stats.strength, 0);
+      if (atkStr > defStr) {
+        this.maulSystem.releaseBall();
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // KICKOFF (M3)
+  // ─────────────────────────────────────────────────────────────
+
+  // ─────────────────────────────────────────────────────────────
+  // KICKOFF (M3)
+  // ─────────────────────────────────────────────────────────────
+
+  private performKickoff(kickingTeamSide: 'home' | 'away' = 'home'): void {
+    const kickingTeam = kickingTeamSide === 'home' ? this.homeTeam : this.awayTeam;
+    const receivingTeam = kickingTeamSide === 'home' ? this.awayTeam : this.homeTeam;
+
+    // Reset collision/grounded states
+    for (const p of [...this.homeTeam.players, ...this.awayTeam.players]) {
+      p.isGrounded = false;
+      p.isInRuck = false;
+      p.hasBall = false;
+    }
+    this.ball.carrier = null;
+
+    // Use KickoffSystem to manage setup
+    this.kickoffSystem.startKickoff(kickingTeam, receivingTeam, 'KICK_OFF');
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TRY SCORED (M3)
+  // ─────────────────────────────────────────────────────────────
+
+  private handleTryScored(team: 'home' | 'away'): void {
+    // Transition phase: TRY_SCORED
+    if (this.phaseManager.canTransition('TRY_SCORED')) {
+      this.phaseManager.transition('TRY_SCORED');
+    } else {
+      this.phaseManager.forcePhase('TRY_SCORED');
+    }
+
+    // Pause clock during try celebration
+    this.clockSystem.pause();
+
+    // Try Animation: Dot Down
+    if (this.ball.carrier) {
+       this.tweens.add({
+          targets: this.ball.carrier.sprite,
+          angle: team === 'home' ? 45 : -45, // Dive angle
+          scaleX: 1.1,
+          scaleY: 1.1,
+          y: this.ball.carrier.sprite.y + 10, // Move down slightly
+          duration: 300,
+          yoyo: true,
+          onComplete: () => {
+             // Reset angle after celebration to avoid stuck rotation
+             if (this.ball.carrier) this.ball.carrier.sprite.angle = 0;
+          }
+       });
+    }
+
+    // Zoom in on ball/scorer
+    this.cameras.main.zoomTo(2.0, 800, 'cubic.out');
+    
+    // Spawn confetti
+    this.spawnConfetti(this.ball.sprite.x, this.ball.sprite.y, team === 'home' ? 0x2563eb : 0xdc2626);
+
+    // Flash "TRY!" text with tween
+    const { width, height } = this.cameras.main;
+    const tryText = this.add.text(width / 2, height / 2, 'TRY!', {
+      fontSize: '64px', fontFamily: 'monospace', color: team === 'home' ? '#3b82f6' : '#ef4444',
+      stroke: '#ffffff', strokeThickness: 4,
+      shadow: { color: '#000000', blur: 10, offsetX: 2, offsetY: 2, fill: true }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(200).setScale(0);
+
+    this.tweens.add({
+       targets: tryText,
+       scale: 1.5,
+       angle: { from: -10, to: 10 },
+       duration: 500,
+       yoyo: true,
+       repeat: 1,
+       onComplete: () => {
+          this.tweens.add({
+             targets: tryText,
+             alpha: 0,
+             duration: 500
+          });
+       }
+    });
+
+    // After celebration, reset and reset game
+    this.time.delayedCall(3000, () => {
+      tryText.destroy();
+      this.cameras.main.zoomTo(CAMERA.ZOOM_DEFAULT, 1000, 'cubic.in');
+
+      this.resetAfterTry(team, width, height); // Extracted conversion logic
+    });
+  }
+
+  private spawnConfetti(x: number, y: number, color: number): void {
+      const emitter = this.particlePool.get();
+      emitter.setPosition(x, y);
+      emitter.setParticleTint(color);
+      
+      emitter.explode(50, x, y);
+      
+      this.time.delayedCall(2000, () => {
+          this.particlePool.release(emitter);
+      });
+  }
+
+  private resetAfterTry(team: 'home' | 'away', width: number, height: number): void {
+      // Conversion attempt logic
+      const accuracy = 0.5 + Math.random() * 0.4;
+      const power = 0.5 + Math.random() * 0.3;
+      const kicker = team === 'home'
+        ? this.homeTeam.getPlayerByPosition(Position.FLY_HALF)
+        : this.awayTeam.getPlayerByPosition(Position.FLY_HALF);
+      const conversionSuccess = this.scoringSystem.attemptConversion(accuracy, power, kicker.stats.kicking);
+
+      const convText = this.add.text(width / 2, height / 2,
+        conversionSuccess ? 'CONVERSION!' : 'MISSED', {
+        fontSize: '32px', fontFamily: 'monospace',
+        color: conversionSuccess ? '#22c55e' : '#ef4444',
+        backgroundColor: '#00000088', padding: { x: 16, y: 8 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+
+      this.time.delayedCall(2000, () => {
+        convText.destroy();
+        this.phaseManager.forcePhase('KICK_OFF');
+        this.phaseManager.transition('OPEN_PLAY');
+        const restartTeam = team === 'home' ? 'away' : 'home';
+        this.performKickoff(restartTeam);
+        this.clockSystem.resume();
+      });
+  }
+
+  // ─────────────────────────────────────────────────────────
   // HUD
   // ─────────────────────────────────────────────────────────
 
@@ -845,9 +1873,14 @@ export class MatchScene extends Phaser.Scene {
       backgroundColor: '#00000088', padding: { x: 10, y: 4 },
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
 
+    // Clock
+    this.clockText = this.add.text(width / 2, 34, '00:00 | 1st Half', {
+      fontSize: '11px', fontFamily: 'monospace', color: '#fbbf24',
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
+
     // Phase counter
-    this.phaseText = this.add.text(width / 2, 34, 'Phase 0 | OPEN PLAY', {
-      fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8',
+    this.phaseText = this.add.text(width / 2, 48, 'Phase 0 | OPEN PLAY', {
+      fontSize: '10px', fontFamily: 'monospace', color: '#94a3b8',
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
 
     // Stamina bar
@@ -880,7 +1913,7 @@ export class MatchScene extends Phaser.Scene {
 
     // Collect all HUD elements
     this.hudElements.push(
-      this.scoreText, this.phaseText,
+      this.scoreText, this.clockText, this.phaseText,
       this.staminaBg, this.staminaBar, this.staminaLabel,
       this.powerBarBg, this.powerBarFill, this.powerBarLabel,
       this.kickTypeText, this.actionPrompt,
@@ -891,7 +1924,13 @@ export class MatchScene extends Phaser.Scene {
   }
 
   private updateHUD(): void {
-    this.scoreText.setText(`HOME ${this.homeScore} — ${this.awayScore} AWAY`);
+    const score = this.scoringSystem.getScore();
+    this.scoreText.setText(`HOME ${score.home} — ${score.away} AWAY`);
+
+    // Clock
+    const halfLabel = this.clockSystem.getHalf() === 1 ? '1st Half' : '2nd Half';
+    const injuryTag = this.clockSystem.isInInjuryTime() ? ' +' : '';
+    this.clockText.setText(`${this.clockSystem.getClockString()}${injuryTag} | ${halfLabel}`);
 
     const phase = this.phaseManager.getPhase().replace('_', ' ');
     this.phaseText.setText(`Phase ${this.phaseManager.getPhaseCount()} | ${phase}`);

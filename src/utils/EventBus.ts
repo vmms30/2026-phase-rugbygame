@@ -19,13 +19,13 @@ export interface GameEvents {
   /** Tackle occurred */
   tackle: { tacklerId: string; carrierId: string; outcome?: string; dominant?: boolean };
   /** Ruck formed */
-  ruckFormed: { x: number; y: number };
+  ruckFormed: { x: number; y: number; attackingTeam: 'home' | 'away' };
   /** Ruck resolved — ball recycled */
-  ruckResolved: { team: 'home' | 'away' };
+  ruckResolved: { team: 'home' | 'away'; action?: 'pass' | 'maul' | 'scrum_win' | 'blindside' | 'openside' };
   /** Ruck ball available for pickup */
-  ruckBallAvailable: { x: number; y: number };
+  ruckBallAvailable: { x: number; y: number; attackingTeam: 'home' | 'away' };
   /** Ruck turnover occurred */
-  ruckTurnover: { x: number; y: number };
+  ruckTurnover: { x: number; y: number; attackingTeam: 'home' | 'away' };
   /** Ruck timed out */
   ruckTimeout: { x: number; y: number };
   /** Ball kicked */
@@ -37,7 +37,7 @@ export interface GameEvents {
   /** Ball went into touch */
   touch: { x: number; y: number; team: 'home' | 'away' };
   /** Penalty awarded */
-  penaltyAwarded: { x: number; y: number; reason: string; team?: 'home' | 'away'; againstAttack?: boolean };
+  penaltyAwarded: { x: number; y: number; reason: string; team?: 'home' | 'away'; againstAttack?: boolean; severity?: 'penalty' | 'free_kick' };
   /** Whistle blown */
   whistle: { type: 'short' | 'long' };
   /** Player switched */
@@ -48,6 +48,14 @@ export interface GameEvents {
   halfTime: Record<string, never>;
   /** Full-time reached */
   fullTime: Record<string, never>;
+  /** Second half starts from HalfTimeScene */
+  secondHalfStart: Record<string, never>;
+  /** Order from TeamAI to PlayerAI */
+  teamOrder: { playerId: string; order: 'KICK' | 'PASS' };
+  /** Player substitution */
+  substitution: { teamSide: 'home' | 'away'; outPlayer: string; inPlayer: string; subsRemaining: number };
+  /** Play selected from PlaySelector UI */
+  playSelected: { play: string };
 }
 
 type EventCallback<T> = (data: T) => void;

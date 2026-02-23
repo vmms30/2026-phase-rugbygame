@@ -1,8 +1,5 @@
-/**
- * BootScene — Preloads all assets and shows a loading bar.
- * Transitions to MenuScene when loading is complete.
- */
 import Phaser from 'phaser';
+import { AudioManager } from '../systems/AudioManager';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -43,6 +40,9 @@ export class BootScene extends Phaser.Scene {
 
     // ── Generate placeholder assets programmatically ─────
     this.createPlaceholderTextures();
+
+    // ── Generate placeholder audio ──────────────────────
+    AudioManager.generatePlaceholderSounds(this);
   }
 
   create(): void {

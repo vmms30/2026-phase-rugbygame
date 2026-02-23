@@ -1,31 +1,27 @@
-/**
- * OffsidesSystem — tracks and enforces offside lines.
- *
- * Tracks offside at rucks, scrums, lineouts, and in general play.
- * AI players respect the line; infringements trigger penalties.
- */
-
+import Phaser from 'phaser';
+import { PITCH } from '../utils/Constants';
 import type { Player } from '../entities/Player';
 
 export class OffsidesSystem {
-  private ruckOffsideLine = 0;
-  private generalOffsideLine = 0;
+  private homeOffsideLineX = 0;
+  private awayOffsideLineX: number = PITCH.WIDTH_PX;
+  private debugMode = false;
+
+  // Track if we are in a ruck state to enforce strict lines
   private isRuckActive = false;
 
   /**
-   * Set the offside line at a ruck/maul.
-   * The line is the x-coordinate of the hindmost foot of the last player.
+   * Set offside lines based on ruck position.
+   * @param ruckX X position of the ruck center
+   * @param isActive Whether ruck is active
    */
-  setRuckOffsideLine(x: number, _attackingRight: boolean): void {
-    this.ruckOffsideLine = x;
-    this.isRuckActive = true;
-  }
-
-  /**
-   * Set the general play offside line (behind last player who played the ball).
-   */
-  setGeneralOffsideLine(x: number): void {
-    this.generalOffsideLine = x;
+  setRuckOffsideLine(ruckX: number, isActive: boolean): void {
+    this.isRuckActive = isActive;
+    if (isActive) {
+      const RUCK_RADIUS = 60;
+      this.homeOffsideLineX = ruckX - RUCK_RADIUS;
+      this.awayOffsideLineX = ruckX + RUCK_RADIUS;
+    }
   }
 
   clearRuckOffside(): void {
@@ -33,44 +29,90 @@ export class OffsidesSystem {
   }
 
   /**
-   * Check if a defending player is offside.
-   * @param player The defender to check
-   * @param teamAttacksRight Whether the defending team's opponents attack right
-   * @returns true if offside
+   * Set general play offside line (e.g. based on ball).
+   * In general play (no ruck), offside is not enforced —
+   * only ruck situations have meaningful offside lines.
    */
-  isPlayerOffside(player: Player, teamAttacksRight: boolean): boolean {
-    const px = player.sprite.x;
-
-    if (this.isRuckActive) {
-      // At a ruck: defender must be behind the ruck offside line
-      if (teamAttacksRight) {
-        return px > this.ruckOffsideLine;
-      } else {
-        return px < this.ruckOffsideLine;
-      }
-    }
-
-    // General play: behind the ball
-    if (teamAttacksRight) {
-      return px > this.generalOffsideLine;
-    } else {
-      return px < this.generalOffsideLine;
-    }
+  setGeneralOffsideLine(_ballX: number): void {
+    // No-op: offside only enforced during ruck
   }
 
   /**
-   * Get the target x-position a defender should retreat to in order to be onside.
+   * Check if specific player is offside and return penalty details.
+   * Only returns offside during active ruck.
    */
-  getOnsideTargetX(teamAttacksRight: boolean): number {
-    if (this.isRuckActive) {
-      return teamAttacksRight ? this.ruckOffsideLine - 5 : this.ruckOffsideLine + 5;
+  getOffsidePenalty(player: Player, _opponentAttacksRight: boolean): { isOffside: boolean; penaltyPos?: {x: number, y: number} } {
+    // Only enforce during ruck
+    if (!this.isRuckActive) return { isOffside: false };
+
+    if (player.teamSide === 'home') {
+      if (player.sprite.x > this.homeOffsideLineX) {
+        return { isOffside: true, penaltyPos: { x: this.homeOffsideLineX, y: player.sprite.y } };
+      }
+    } else {
+      if (player.sprite.x < this.awayOffsideLineX) {
+        return { isOffside: true, penaltyPos: { x: this.awayOffsideLineX, y: player.sprite.y } };
+      }
     }
-    return teamAttacksRight ? this.generalOffsideLine - 5 : this.generalOffsideLine + 5;
+    return { isOffside: false };
   }
 
-  reset(): void {
-    this.ruckOffsideLine = 0;
-    this.generalOffsideLine = 0;
-    this.isRuckActive = false;
+  /**
+   * Check if a player is offside (simple boolean).
+   * Only returns true during active ruck.
+   */
+  isOffside(player: Player): boolean {
+    if (!this.isRuckActive) return false;
+    const result = this.getOffsidePenalty(player, player.teamSide !== 'home');
+    return result.isOffside;
+  }
+
+  getOffsideLine(side: 'home' | 'away'): number {
+    return side === 'home' ? this.homeOffsideLineX : this.awayOffsideLineX;
+  }
+  
+  /** Returns true only when ruck offside is active */
+  isActive(): boolean {
+    return this.isRuckActive;
+  }
+
+  toggleDebug(): void {
+    this.debugMode = !this.debugMode;
+  }
+
+  isDebugActive(): boolean {
+    return this.debugMode;
+  }
+
+  /**
+   * Render offside debug lines on the pitch (M5.4).
+   * Draws dotted red line for home offside, blue for away.
+   */
+  renderDebugLine(graphics: Phaser.GameObjects.Graphics): void {
+    if (!this.debugMode || !this.isRuckActive) return;
+
+    const pitchTop = 0;
+    const pitchBottom = PITCH.HEIGHT_PX;
+    const dashLength = 10;
+    const gapLength = 8;
+
+    // Home offside line (red)
+    graphics.lineStyle(2, 0xff0000, 0.7);
+    for (let y = pitchTop; y < pitchBottom; y += dashLength + gapLength) {
+      graphics.lineBetween(
+        this.homeOffsideLineX, y,
+        this.homeOffsideLineX, Math.min(y + dashLength, pitchBottom)
+      );
+    }
+
+    // Away offside line (blue)
+    graphics.lineStyle(2, 0x0000ff, 0.7);
+    for (let y = pitchTop; y < pitchBottom; y += dashLength + gapLength) {
+      graphics.lineBetween(
+        this.awayOffsideLineX, y,
+        this.awayOffsideLineX, Math.min(y + dashLength, pitchBottom)
+      );
+    }
   }
 }
+
